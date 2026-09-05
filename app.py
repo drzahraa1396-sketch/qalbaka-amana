@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, timedelta
 
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1PMofGU82eW8DLSn1l9tS2jfppf4KUCLwJblHV16Yjo0/export?format=csv"
 
@@ -29,7 +29,6 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.subheader("إدخال بيانات المريض وتقييم المخاطر (WHO/ISH CVD Risk)")
     
-    # اختيار طريقة التقييم
     chart_method = st.radio(
         "اختر طريقة تقييم المخاطر المتاحة:",
         ["استخدام الكوليسترول (Cholesterol Chart)", "استخدام مؤشر كتلة الجسم (BMI Chart - Non-Laboratory)"],
@@ -66,12 +65,6 @@ with tab1:
         submitted = st.form_submit_button("💾 حفظ الحالة وحساب المخاطر")
         
         if submitted:
-            # خوارزمية تقدير نسبة المخاطر واللون وفق معايير WHO CVD Risk Charts
-            risk_percent = "< 10%"
-            color_code = "🟢 أخضر (مخاطر منخفضة)"
-            statin_dose = "لا يحتاج Statin"
-
-            # حساب تقريبي حسب العمر والضغط والعوامل
             score = 0
             if age >= 60: score += 2
             elif age >= 50: score += 1
@@ -87,46 +80,52 @@ with tab1:
             elif "Cholesterol" in chart_method and cholesterol and cholesterol >= 240:
                 score += 1
 
-            # تحديد الفئة واللون والجرعة
+            today = date.today()
+
+            # تحديد النسبة، اللون، الجرعة، وتاريخ الزيارة القادمة
             if score <= 1:
                 risk_percent = "< 10%"
-                color_code = "🟢 أخضر (مخاطر منخفضة)"
+                color_code = "🟢 أخضر (منخفضة)"
                 statin_dose = "تعديل نمط الحياة فقط"
+                next_visit = today + timedelta(days=365) # بعد سنة
             elif score == 2:
                 risk_percent = "10% إلى < 20%"
-                color_code = "🟡 أصفر (مخاطر متوسطة)"
+                color_code = "🟡 أصفر (متوسطة)"
                 statin_dose = "Atorvastatin 10mg daily"
+                next_visit = today + timedelta(days=90)  # بعد 3 أشهر
             elif score == 3:
                 risk_percent = "20% إلى < 30%"
-                color_code = "🟠 برتقالي (مخاطر عالية)"
+                color_code = "🟠 برتقالي (عالية)"
                 statin_dose = "Atorvastatin 20mg daily"
+                next_visit = today + timedelta(days=30)  # بعد شهر
             elif score == 4:
                 risk_percent = "30% إلى < 40%"
-                color_code = "🔴 أحمر (مخاطر عالية جداً)"
-                statin_dose = "Atorvastatin 20mg / 40mg daily"
+                color_code = "🔴 أحمر (عالية جداً)"
+                statin_dose = "Atorvastatin 20mg/40mg daily"
+                next_visit = today + timedelta(days=14)  # بعد أسبوعين
             else:
                 risk_percent = "≥ 40%"
-                color_code = "🟤 أحمر داكن (مخاطر شديدة الخطورة)"
-                statin_dose = "Atorvastatin 40mg daily + إحالة فورية"
+                color_code = "🟤 أحمر داكن (شديدة)"
+                statin_dose = "Atorvastatin 40mg + إحالة"
+                next_visit = today + timedelta(days=7)   # إحالة/استدعاء عاجل خلال أسبوع
 
-            # استثناء مريض السكر أو الضغط العالي جداً
             if dm == "نعم" and risk_percent in ["< 10%", "10% إلى < 20%"]:
                 statin_dose = "Atorvastatin 20mg daily (وجود سكر)"
 
             new_record = {
-                "التاريخ": date.today().strftime("%Y-%m-%d"),
+                "تاريخ الكشف": today.strftime("%Y-%m-%d"),
                 "اسم المريض": patient_name,
                 "الرقم القومي": national_id,
-                "العمر": age,
-                "النوع": gender,
-                "طريقة التقييم": "Cholesterol" if "Cholesterol" in chart_method else "BMI",
+                "رقم الهاتف": phone,
+                "رقم الملف": file_no,
                 "نسبة المخاطر": risk_percent,
                 "اللون": color_code,
-                "جرعة Statin": statin_dose
+                "جرعة Statin": statin_dose,
+                "تاريخ الزيارة القادمة": next_visit.strftime("%Y-%m-%d")
             }
             st.session_state.daily_records.append(new_record)
             
-            st.success(f"تم الحفظ بنجاح! | نسبة المخاطر: {risk_percent} | المستوى واللون: {color_code} | الجرعة المقترحة: {statin_dose}")
+            st.success(f"تم الحفظ بنجاح! | نسبة المخاطر: {risk_percent} | المستوى واللون: {color_code} | الجرعة: {statin_dose} | 📅 موعد الزيارة القادمة: {next_visit.strftime('%Y-%m-%d')}")
 
 with tab2:
     st.subheader("سجل التردد اليومي للمرضى")
@@ -139,11 +138,17 @@ with tab2:
         st.warning("لا توجد سجلات حالية.")
 
 with tab3:
-    st.subheader("سجل الاستدعاء والإحالة")
-    st.write("متابعة الاستدعاء الأول، الثاني، والإحالة للمستشفيات.")
+    st.subheader("📞 سجل الاستدعاء والإحالة للمتابعة")
+    if st.session_state.daily_records:
+        df_recall = pd.DataFrame(st.session_state.daily_records)[
+            ["اسم المريض", "رقم الهاتف", "اللون", "تاريخ الكشف", "تاريخ الزيارة القادمة", "جرعة Statin"]
+        ]
+        st.dataframe(df_recall, use_container_width=True)
+    else:
+        st.info("سجل الاستدعاء فارغ حالياً. سيتحدث تلقائياً بمواعيد الاستدعاء فور إدخال الحالات.")
 
 with tab4:
     st.subheader("البيان الشهري المجمع - وزارة الصحة والسكان")
     if st.button("🔄 تجميع البيان الشهري تلقائياً"):
         st.success("تم تجميع البيان الشهري لوحدة ميت فارس بنجاح جاهز للتصدير.")
-        
+                
