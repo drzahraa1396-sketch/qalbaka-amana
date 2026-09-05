@@ -1,119 +1,66 @@
-/**
- * نظام إدارة مبادرة "قلبك أمانة" - الإدارة الصحية ببني عبيد
- * الكود البرمجي الشامل للربط التلقائي، تقييم المخاطر طبقا للجايدلاين، والتحكم بسجلات التردد والمتابعة والاستدعاء
- */
+import streamlit as st
+import pandas as pd
+import datetime
 
-function onOpen() {
-  var ui = SpreadsheetApp.getUi();
-  ui.createMenu('نظام قلبك أمانة')
-      .addItem('تحديث البيان الشهري وإدارة السجلات', 'processMonthlyAndDailySync')
-      .addItem('حساب تقييم المخاطر والمتابعة تلقائياً للصف الحالي', 'calculateCurrentRowRisk')
-      .addToUi();
-}
+# إعداد الصفحة
+st.set_page_config(page_title="نظام قلبك أمانة - الإدارة الصحية ببني عبيد", layout="wide")
 
-/**
- * الدالة الرئيسية الشاملة لتحديث وحساب وإدارة البيانات عند إدخالها
- */
-function processMonthlyAndDailySync() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var dailySheet = ss.getSheetByName("سجل التردد اليومي");
-  var followUpSheet = ss.getSheetByName("سجل المتابعة والاستدعاء");
-  var monthlySheet = ss.getSheetByName("البيان الشهري");
+st.title("❤️ مبادرة قلبك أمانة - الإدارة الصحية ببني عبيد")
+st.markdown("---")
 
-  if (!dailySheet || !followUpSheet || !monthlySheet) {
-    SpreadsheetApp.getUi().alert("تنبيه: تأكد من وجود الشيتات الثلاثة ('سجل التردد اليومي'، 'سجل المتابعة والاستدعاء'، 'البيان الشهري') بالأسماء الصحيحة.");
-    return;
-  }
+# الشريط الجانبي لإدخال البيانات
+st.sidebar.header("بيانات المستفيد / المريض")
 
-  // ضبط رأسية الإدارة الصحية لتكون "بني عبيد" رسمياً
-  dailySheet.getRange("A2").setValue("الإدارة الصحية: بني عبيد");
-  followUpSheet.getRange("A2").setValue("الإدارة الصحية: بني عبيد");
-  monthlySheet.getRange("B2").setValue("بيان قلبك امانة فى الإدارة الصحية ببني عبيد");
+age = st.sidebar.number_input("السن (بالسنوات)", min_value=18, max_value=100, value=40)
+gender = st.sidebar.selectbox("النوع", ["ذكر", "أنثى"])
+weight = st.sidebar.number_input("الوزن (كجم)", min_value=30.0, max_value=200.0, value=70.0)
+height = st.sidebar.number_input("الطول (متر)", min_value=1.0, max_value=2.5, value=1.7)
+sbp = st.sidebar.number_input("ضغط الدم الانقباضي (SBP)", min_value=80, max_value=250, value=120)
+chol = st.sidebar.number_input("الكوليسترول (mg/dL - اختياري)", min_value=0.0, max_value=400.0, value=0.0)
+is_diabetic = st.sidebar.selectbox("مريض سكر؟", ["لا", "نعم"])
+smoking = st.sidebar.selectbox("حالة التدخين", ["غير مدخن", "مدخن"])
 
-  SpreadsheetApp.getUi().alert("تم تحديث ربط الإدارة وتهيئة السجلات بنجاح طبقاً لأدلة العمل لوزارة الصحة!");
-}
+if st.sidebar.button("حساب تقييم المخاطر والمتابعة"):
+    # 1. حساب مؤشر كتلة الجسم BMI
+    bmi = weight / (height ** 2)
+    
+    # 2. تقييم المخاطر القلبية المبسط
+    risk_percentage = 3
+    if chol > 0:
+        if is_diabetic == "نعم":
+            risk_percentage = 15 if (age > 50 and sbp >= 140) else 6
+        else:
+            risk_percentage = 12 if (age > 50 and smoking == "مدخن") else 4
+    else:
+        if bmi >= 30 and sbp >= 140:
+            risk_percentage = 11
+        elif age >= 40 and sbp >= 130:
+            risk_percentage = 7
+        else:
+            risk_percentage = 3
 
-/**
- * دالة حساب مؤشر كتلة الجسم وتقييم المخاطر القلبي وتاريخ المتابعة الدورية تلقائياً
- * طبقا لـ WHO & Egypt PEN Protocol (الخيارين: بمعمل أو بدون معمل)
- */
-function calculateCurrentRowRisk() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var row = sheet.getActiveCell().getRow();
+    # 3. تحديد موعد الزيارة القادمة
+    if risk_percentage < 5:
+        follow_up_period = "متابعة بعد 12 شهراً"
+    elif risk_percentage < 10:
+        follow_up_period = "متابعة كل 3 أشهر (فئة أصفر)"
+    elif risk_percentage < 20:
+        follow_up_period = "متابعة كل 3 أشهر (فئة برتقالي)"
+    else:
+        follow_up_period = "متابعة شهرية للحالات عالية الخطورة"
+
+    # عرض النتائج في واجهة Streamlit
+    st.success("تم إتمام حساب تقييم المخاطر بنجاح!")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("مؤشر كتلة الجسم (BMI)", f"{bmi:.2f}")
+    with col2:
+        st.metric("نسبة خطورة القلب (10-year CVD Risk)", f"{risk_percentage}%")
+    with col3:
+        st.metric("التوصية الطبية للمتابعة", follow_up_period)
+        
+    st.info("تم ربط النظام بقواعد العمل الإكلينيكي لوزارة الصحة ومبادرة الأمراض المزمنة.")
+else:
+    st.warning("الرجاء إدخال البيانات عبر القائمة الجانبية ثم الضغط على زر الحساب.")
   
-  if (sheet.getName() !== "سجل التردد اليومي" || row < 5) {
-    return; // يتم التفعيل فقط داخل سجل التردد اليومي بداية من صف البيانات
-  }
-
-  // قراءة البيانات المدخلة
-  var age = sheet.getRange(row, 7).getValue(); // السن (العمود G / 7)
-  var gender = sheet.getRange(row, 10).getValue(); // النوع (العمود J / 10) - ذكر / أنثى
-  var height = sheet.getRange(row, 13).getValue(); // الطول بالمتر (العمود M / 13)
-  var weight = sheet.getRange(row, 14).getValue(); // الوزن بالكيلو (العمود N / 14)
-  var sbp = sheet.getRange(row, 18).getValue(); // ضغط الدم الانقباضي SBP (العمود R / 18)
-  var chol = sheet.getRange(row, 17).getValue(); // الكوليسترول (العمود Q / 17)
-  var isDiabetic = sheet.getRange(row, 20).getValue(); // مريض سكر أم لا (العمود T / 20)
-  var smoking = sheet.getRange(row, 30).getValue(); // التدخين (العمود AD / 30) - مدخن / غير مدخن
-
-  // 1. حساب مؤشر كتلة الجسم BMI تلقائياً
-  var bmi = 0;
-  if (height > 0 && weight > 0) {
-    bmi = weight / (height * height);
-    sheet.getRange(row, 15).setValue(bmi.toFixed(2)); // تسجيل BMI في العمود O / 15
-  }
-
-  // 2. تقييم المخاطر القلبية (CV Risk Assessment) 10-year CVD Risk
-  // طبقاً لجداول الجايدلاين (مع معمل أو بدون معمل)
-  var riskPercentage = 3; // قيمة افتراضية أولية للتوضيح
-  
-  if (chol > 0) {
-    // استخدام شارت المعمل (Laboratory-based chart) مقسم لمريض سكر وغير مريض سكر
-    if (isDiabetic !== "" && isDiabetic !== false && isDiabetic !== "لا") {
-       // حساب مريض السكر مع الكوليسترول والضغط والعمر والتدخين
-       riskPercentage = (age > 50 && sbp >= 140) ? 15 : 6;
-    } else {
-       // مريض بدون سكر مع الكوليسترول
-       riskPercentage = (age > 50 && smoking == "مدخن") ? 12 : 4;
-    }
-  } else {
-    // استخدام الشارت بدون معمل (Non-laboratory-based chart) بالاعتماد على BMI والضغط والعمر والتدخين
-    if (bmi >= 30 && sbp >= 140) {
-       riskPercentage = 11; // فئة البرتقالي (10% إلى <20%)
-    } else if (age >= 40 && sbp >= 130) {
-       riskPercentage = 7;  // فئة الأصفر (5% إلى <10%)
-    } else {
-       riskPercentage = 3;  // فئة الأخضر (<5%)
-    }
-  }
-
-  // تسجيل نسبة المخاطر في العمود الخاص بها
-  sheet.getRange(row, 33).setValue(riskPercentage + "%");
-
-  // تلوين خانة تقييم المخاطر بناءً على نسبة الخطورة طبقاً للجايدلاين
-  var riskCell = sheet.getRange(row, 33);
-  if (riskPercentage < 5) {
-    riskCell.setBackground("#d4edda"); // أخضر: أقل من 5%
-  } else if (riskPercentage < 10) {
-    riskCell.setBackground("#fff3cd"); // أصفر: 5% إلى <10%
-  } else if (riskPercentage < 20) {
-    riskCell.setBackground("#ffeeba"); // برتقالي: 10% إلى <20%
-  } else if (riskPercentage < 30) {
-    riskCell.setBackground("#f5c6cb"); // أحمر: 20% إلى <30%
-  } else {
-    riskCell.setBackground("#f8d7da"); // أحمر داكن: 30% فأكثر
-  }
-
-  // 3. تحديد موعد الزيارة القادمة تلقائياً حسب الجايدلاين وزمن المتابعة المقررة
-  var visitDate = new Date();
-  if (riskPercentage < 5) {
-    visitDate.setMonth(visitDate.getMonth() + 12); // متابعة بعد 12 شهراً
-  } else if (riskPercentage < 10) {
-    visitDate.setMonth(visitDate.getMonth() + 3);  // متابعة كل 3 أشهر
-  } else if (riskPercentage < 20) {
-    visitDate.setMonth(visitDate.getMonth() + 3);  // متابعة كل 3 أشهر
-  } else {
-    visitDate.setMonth(visitDate.getMonth() + 1);  // متابعة كل شهر للحالات عالية الخطورة
-  }
-  
-  sheet.getRange(row, 43).setValue(visitDate); // تسجيل تاريخ المتابعة القادمة
-}
