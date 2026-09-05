@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 
-# رابط الجوجل شيت المخصص للتسجيل اليومي (يمكن تحديثه برابط الـ CSV الخاص بك)
+# رابط الجوجل شيت المخصص للتسجيل اليومي
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1PMofGU82eW8DLSn1l9tS2jfppf4KUCLwJblHV16Yjo0/export?format=csv"
 
 @st.cache_data(ttl=5)
@@ -29,12 +29,12 @@ tab1, tab2, tab3, tab4 = st.tabs([
 with tab1:
     st.subheader("إدخال بيانات المريض وتقييم المخاطر القلبية (إدارة بني عبيد الصحية)")
     
-    # اختيار الشارت المستخدم (حسب أدلة العمل)
+    # خيارين للشارتات طبقاً لكتيب منظمة الصحة العالمية (بدون سكر / مع سكر) كما ورد في الأدلة
     chart_option = st.radio(
-        "اختر شارت تقييم المخاطر القلبية (وفقاً لتوفر الفحوصات):",
+        "اختر شارت تقييم المخاطر القلبية (وفقاً لحالة السكر - يعتمدان معاً على الضغط، الكوليسترول، العمر والتدخين):",
         [
-            "📉 شارت المختبر (Laboratory-based Chart - يتطلب الكوليسترول)", 
-            "📊 شارت غير المختبر (Non-Laboratory / BMI Chart - مؤشر كتلة الجسم وضغط الدم)"
+            "📉 شارت غير المصابين بالسكري (People without Diabetes Chart - يعتمد على الضغط، الكوليسترول، التدخين والعمر)", 
+            "📊 شارت المصابين بالسكري (People with Diabetes Chart - يعتمد على الضغط، الكوليسترول، التدخين والعمر)"
         ],
         horizontal=True
     )
@@ -50,29 +50,24 @@ with tab1:
             file_no = st.text_input("رقم الملف العائلي (رقم المنزل / رقم الفرد)")
             national_id = st.text_input("الرقم القومي (14 رقم لتدقيق التسجيل مرة واحدة شهرياً)")
             visit_status = st.selectbox("حملة قلبك أمانة", ["جديد", "متردد"])
-            age = st.number_input("العمر", min_value=18, max_value=120, value=45)
+            age = st.number_input("العمر (مفترض 40-74 سنة للشارت)", min_value=18, max_value=120, value=45)
             gender = st.selectbox("النوع", ["ذكر", "أنثى"])
             phone = st.text_input("رقم الموبايل")
 
         with col2:
-            sbp = st.number_input("ضغط الدم الانقباضي (SBP)", min_value=80, max_value=240, value=120)
+            sbp = st.number_input("ضغط الدم الانقباضي SBP (mmHg)", min_value=80, max_value=240, value=120)
+            cholesterol = st.number_input("الكوليسترول الكلي Total Cholesterol (mg/dL)", min_value=100, max_value=400, value=200)
+            ldl = st.number_input("نسبة LDL (mg/dL)", min_value=50, max_value=300, value=120)
             smoker = st.selectbox("الموقف من التدخين", ["غير مدخن", "مدخن"])
             family_history = st.selectbox("التاريخ المرضي لأفراد الأسرة من الدرجة الأولى (أمراض قلب)", ["لا يوجد", "يوجد"])
-            dm_status = st.selectbox("حالة السكر (DM)", ["لا يوجد", "جديد", "متردد"])
-            htn_status = st.selectbox("حالة الضغط (HTN)", ["لا يوجد", "جديد", "متردد"])
             
-            # حقول الإدخال حسب الشارت المختار
-            if "المختبر" in chart_option:
-                cholesterol = st.number_input("الكوليسترول الكلي (mg/dL)", min_value=100, max_value=400, value=200)
-                ldl = st.number_input("نسبة LDL (mg/dL)", min_value=50, max_value=300, value=120)
-                height, weight, bmi = 0.0, 0.0, 0.0
+            # تحديد حالة السكر آلياً بناءً على الشارت المختار
+            if "بدون المصابين" in chart_option or "غير المصابين" in chart_option:
+                dm_status = "لا يوجد"
+                st.info("ℹ️ تم اختيار شارت: أشخاص بدون سكر (يعتمد على الكوليسترول، الضغط، العمر والتدخين).")
             else:
-                cholesterol = 0.0
-                ldl = 0.0
-                height = st.number_input("الطول (سم)", min_value=100, max_value=220, value=165)
-                weight = st.number_input("الوزن (كجم)", min_value=30, max_value=200, value=70)
-                bmi = round(weight / ((height / 100) ** 2), 1)
-                st.caption(f"مؤشر كتلة الجسم المحسوب (BMI): {bmi}")
+                dm_status = "مُصاب بالسكر"
+                st.info("ℹ️ تم اختيار شارت: أشخاص مصابون بالسكر (يعتمد على الكوليسترول، الضغط، العمر والتدخين).")
 
         st.markdown("---")
         st.subheader("الإجراءات المتخذة والعلاج")
@@ -87,7 +82,7 @@ with tab1:
         submitted = st.form_submit_button("💾 حفظ وتسجيل الحالة بالشيت اليومي")
         
         if submitted:
-            # التحقق من عدم تكرار تسجيد المريض في نفس الشهر (بناءً على الرقم القومي أو رقم الملف)
+            # التحقق من عدم تكرار تسجيل المريض في نفس الشهر (بناءً على الرقم القومي)
             current_month = date.today().strftime("%Y-%m")
             existing_df = load_data()
             
@@ -104,7 +99,7 @@ with tab1:
             if already_registered:
                 st.warning("⚠️ هذا المريض مسجل بالفعل في سجل التردد اليومي لهذا الشهر! لا يتم تكرار تسجيله يومياً، ويتم الاكتفاء بزيارته لصرف العلاج دون إنشاء سجل تردد جديد.")
             else:
-                # خوارزمية تقييم المخاطر القلبية الدقيقة وفقاً للـ Guidelines الرسمية
+                # خوارزمية تقييم المخاطر القلبية الدقيقة وفقاً للشارتات (الضغط + الكوليسترول + التدخين + العمر + السكر)
                 score = 0
                 if age >= 65: score += 2
                 elif age >= 40: score += 1
@@ -112,18 +107,13 @@ with tab1:
                 if sbp >= 160: score += 2
                 elif sbp >= 140: score += 1
 
+                if cholesterol >= 240: score += 1
                 if smoker == "مدخن": score += 1
-                if dm_status != "لا يوجد": score += 2
-                if htn_status != "لا يوجد": score += 1
-
-                if "BMI" in chart_option and bmi >= 30:
-                    score += 1
-                elif "المختبر" in chart_option and cholesterol >= 240:
-                    score += 1
+                if dm_status == "مُصاب بالسكر": score += 2
 
                 today = date.today()
 
-                # تحديد نسبة المخاطر وميعاد الزيارة القادمة بدقة طبقاً لأدلة العمل الإكلينيكية
+                # تحديد نسبة المخاطر والتقييم الدقيق وميعاد الزيارة القادمة طبقا لأدلة العمل الإكلينيكية
                 if score <= 1:
                     risk_category = "اقل من 5%"
                     color_code = "🟢 أخضر (منخفضة)"
@@ -156,9 +146,11 @@ with tab1:
                     "العمر": age,
                     "النوع": gender,
                     "رقم الموبايل": phone,
-                    "طريقة التقييم": "المختبر" if "المختبر" in chart_option else "BMI",
+                    "نوع الشارت المستخدم": chart_option,
                     "نسبة المخاطر القلبية": risk_category,
                     "المستوى واللون": color_code,
+                    "الكوليسترول": cholesterol,
+                    "LDL": ldl,
                     "الستاتين": statin_rx,
                     "الأسبرين": aspirin_rx,
                     "الإحالة": referral,
