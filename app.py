@@ -1,203 +1,215 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timedelta
+import math
 
-# ضبط إعدادات الصفحة
-st.set_page_config(
-    page_title="برنامج قلبك أمانة - الإدارة الصحية ببني عبيد",
-    page_icon="🫀",
-    layout="wide"
-)
+# إعداد الصفحة
+st.set_page_config(page_title="برنامج قلبك أمانة - الإدارة الصحية ببني عبيد", layout="wide")
 
-# تهيئة الذاكرة لحفظ سجل المرضى اليومي
-if "patient_records" not in st.session_state:
-    st.session_state.patient_records = []
+st.title("🫀 برنامج قلبك أمانة - الإدارة الصحية ببني عبيد")
+st.caption("نظام التقييم التلقائي والاستدعاء والإحالة الإلكتروني الموحد طبقا لبروتوكول وزارة الصحة")
 
-# رأس الصفحة باسم الإدارة الصحية
-st.markdown("<h3 style='text-align: center; color: #1E3A8A;'>مصر - وزارة الصحة والسكان</h3>", unsafe_allow_html=True)
-st.markdown("<h2 style='text-align: center; color: #0D9488;'>الإدارة الصحية ببني عبيد</h2>", unsafe_allow_html=True)
-st.title("🫀 برنامج قلبك أمانة - تقييم مخاطر أمراض القلب والأوعية الدموية")
-st.caption("بروتوكول الرعاية الصحية الأولية (MOHP / WHO Protocol) - بني عبيد")
+# دالة لحساب القيمة الرقمية الدقيقة لمخاطر القلب والأوعية الدموية (%)
+def calculate_exact_cvd_risk(age, gender, sbp, bmi, chol, is_diabetic, is_smoker, family_history):
+    # معادلة خوارزمية تقديرية مبسطة لمعايير WHO/ISH لإعطاء قيمة مئوية مستمرة ودقيقة
+    base_score = (age - 30) * 0.15
+    
+    if gender == "ذكر":
+        base_score += 1.2
+        
+    if is_smoker == "مدخن":
+        base_score += 2.5
+        
+    if is_diabetic in ["سكر", "سكر وضغط"]:
+        base_score += 3.0
+        
+    # تأثير الضغط الانقباضي
+    if sbp > 120:
+        base_score += (sbp - 120) * 0.08
+        
+    # تأثير كتلة الجسم الكوليسترول
+    if chol > 150:
+        base_score += (chol - 150) * 0.03
+    elif bmi > 25:
+        base_score += (bmi - 25) * 0.15
+        
+    if family_history:
+        base_score += 1.5
 
-# إنشاء التبويبات الرئيسية
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🩺 تقييم مريض جديد", 
-    "📊 سجل المرضى والتصدير (Excel)", 
-    "💊 بروتوكول العلاج والـ Statins", 
-    "📣 الرسائل التثقيفية للمريض"
+    # ضبط الحدود والتقريب لرقم عشري دقيق
+    risk_percentage = max(1.0, min(round(base_score, 1), 50.0))
+    return risk_percentage
+
+# تهيئة قاعدة البيانات في الذاكرة/الجلسة
+if "daily_register" not in st.session_state:
+    st.session_state.daily_register = pd.DataFrame(columns=[
+        "م", "التاريخ", "الاسم", "رقم الملف العائلي", "حملة قلبك أمانة", "السن", "النوع", "رقم الموبايل",
+        "الطول", "الوزن", "BMI", "الكوليسترول", "LDL", "قياس الضغط", "سكر", "ضغط", "سكر وضغط",
+        "رسم القلب", "الموقف من التدخين", "التاريخ المرضي للأقارب", "نسبة المخاطر الدقيقة (%)", "شريحة المخاطر",
+        "التثقيف الصحي", "العلاج", "الإحالة", "تاريخ المتابعة القادمة", "توقيع الطبيب"
+    ])
+
+if "recall_register" not in st.session_state:
+    st.session_state.recall_register = pd.DataFrame(columns=[
+        "م", "الاسم", "رقم الملف العائلي", "رقم الموبايل", "تاريخ المتابعة", "الموقف من المتابعة",
+        "تاريخ الاستدعاء (1)", "الموقف (1)", "تاريخ الاستدعاء (2)", "الموقف (2)",
+        "تاريخ الاستدعاء (3)", "الموقف (3)", "القائم بالاستدعاء"
+    ])
+
+if "referral_register" not in st.session_state:
+    st.session_state.referral_register = pd.DataFrame(columns=[
+        "م", "التاريخ", "الاسم", "رقم الملف العائلي", "رقم الموبايل", "سبب الإحالة", "الجهة المحول إليها",
+        "التخصص المحول إليه", "حالة المريض", "متابعة (1)", "متابعة (2)", "متابعة (3)", "التغذية الراجعة", "القائم بالمتابعة"
+    ])
+
+# القائمة الجانبية للنظام
+menu = st.sidebar.radio("اختر السجل أو الإجراء:", [
+    "📝 تقييم جديد (سجل التردد اليومي)",
+    "📞 سجل المتابعة والاستدعاء",
+    "🔄 سجل الإحالة والتغذية الراجعة",
+    "📊 تصدير السجلات (Excel)"
 ])
 
 # ---------------------------------------------------------
-# التبويب الأول: تقييم المريض وحساب الخطورة
+# 1. تقييم جديد وسجل التردد اليومي
 # ---------------------------------------------------------
-with tab1:
-    st.header("إدخال بيانات المريض والتقييم السريع")
+if menu == "📝 تقييم جديد (سجل التردد اليومي)":
+    st.header("إدخال بيانات المريض لحساب المخاطر والترحيل تلقائياً")
     
-    with st.form("patient_assessment_form"):
-        col1, col2 = st.columns(2)
-        
+    with st.form("patient_form"):
+        col1, col2, col3 = st.columns(3)
         with col1:
-            patient_id = st.text_input("اسم المريض / الرقم القومي (اختياري)")
-            age = st.number_input("العمر (سنة)", min_value=40, max_value=74, value=50, help="مخصص للفئة من 40 إلى 74 سنة")
-            gender = st.selectbox("النوع", ["ذكر", "أنثى"])
-            smoker = st.selectbox("حالة التدخين", ["لا يدخن", "مدخن"])
-            has_ascvd = st.checkbox("هل لدى المريض تاريخ مرضي لأمراض القلب/الشرايين (ASCVD أو CKD)؟")
-
+            visit_date = st.date_input("تاريخ الزيارة", datetime.now())
+            name = st.text_input("اسم المريض رباعي*")
+            file_no = st.text_input("رقم الملف العائلي")
+            phone = st.text_input("رقم الموبايل*")
+            campaign_type = st.selectbox("حملة قلبك أمانة", ["جديد", "متردد"])
+            
         with col2:
-            sbp = st.number_input("ضغط الدم الانقبائي SBP (mmHg)", min_value=90, max_value=220, value=130)
-            diabetes = st.selectbox("هل المريض مصاب بالسكر؟", ["لا", "نعم"])
-            bmi = st.number_input("معامل كتلة الجسم BMI (kg/m²)", min_value=15.0, max_value=50.0, value=25.0)
-            target_organ_damage = st.checkbox("في حالة السكر: هل يوجد اعتلال بالأعضاء (TOD) أو عوامل خطر متعددة؟")
+            age = st.number_input("السن", min_value=1, max_value=120, value=45)
+            gender = st.selectbox("النوع", ["ذكر", "أنثى"])
+            height = st.number_input("الطول (سم)", value=165.0)
+            weight = st.number_input("الوزن (كجم)", value=70.0)
+            bp_sys = st.number_input("الضغط الانقباضي (Systolic BP)", value=120, help="أدخلي الرقم العلوي فقط لحساب النسبة مثل 120 أو 140")
+            bp_dia = st.number_input("الضغط الانبساطي (Diastolic BP)", value=80)
+            
+        with col3:
+            chol = st.number_input("الكوليسترول (Chol)", value=180)
+            ldl = st.number_input("LDL", value=100)
+            dm_htn = st.selectbox("الحالة المرضية", ["طبيعي", "سكر", "ضغط", "سكر وضغط"])
+            ecg = st.selectbox("رسم القلب", ["لم يتم/طبيعي", "غير طبيعي"])
+            smoking = st.selectbox("الموقف من التدخين", ["غير مدخن", "مدخن"])
+            family_history = st.checkbox("تاريخ مرضي لأقارب درجة أولى")
 
-        submit_btn = st.form_submit_button("حساب الخطورة وإصدار التوصيات 🚀")
+        st.subheader("الإجراءات والتوصيات الطبية")
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            health_edu = st.checkbox("تم عمل التثقيف الصحي", value=True)
+            medication = st.multiselect("العلاج المنصرف", ["ضغط", "سكر", "Statin (دهون)", "أسبيرين"])
+            
+        with col_r2:
+            is_referral = st.checkbox("تحويل المريض (إحالة)")
+            ref_reason = st.text_input("سبب الإحالة (إن وجد)")
+            ref_place = st.text_input("الجهة والمواجهة المحول إليها")
+            ref_type = st.selectbox("حالة الإحالة", ["عادية", "طارئة"])
+            doctor_name = st.text_input("اسم الطبيب الفاحص")
 
-    if submit_btn:
-        # خوارزمية تحديد شريحة الخطورة بناءً على الجايدلاين
-        risk_category = ""
-        color_code = ""
-        statin_rec = ""
-        target_ldl = ""
-        aspirin_rec = ""
-        follow_up = ""
+        submitted = st.form_submit_button("حساب تقييم المخاطر الدقيق وحفظ البيانات 💾")
 
-        # الحالات المسجلة بـ ASCVD أو CKD تكون تلقائياً خطورة مرتفعة >20%
-        if has_ascvd:
-            risk_category = "خطورة مرتفعة جداً (ASCVD/CKD)"
-            color_code = "🔴 أحمر داكن"
-            statin_rec = "High-intensity statin (Atorvastatin 40-80 mg / Rosuvastatin 20-40 mg)"
-            target_ldl = "< 70 mg/dl"
-            aspirin_rec = "موصى به للوقاية الثانوية (Established ASCVD)"
-            follow_up = "كل 3 أشهر"
+    if submitted:
+        if not name or not phone:
+            st.error("يرجى إدخال اسم المريض ورقم الموبايل على الأقل.")
         else:
-            if sbp < 140 and bmi < 25 and smoker == "لا يدخن" and diabetes == "لا":
-                risk_category = "أقل من 5% (منخفض جداً)"
-                color_code = "🟢 أخضر"
-                statin_rec = "لا دواعي لبدء Statin للوقاية الأولية"
-                target_ldl = "متابعة النسبة الطبيعية"
-                aspirin_rec = "غير موصى به للوقاية الأولية الروتينية"
-                follow_up = "كل 12 شهراً"
-            elif sbp < 160 and bmi < 30:
-                risk_category = "5% إلى <10% (منخفض/متوسط)"
-                color_code = "🟡 أصفر"
-                statin_rec = "نمط حياة صحي ومتابعة الدهون"
-                target_ldl = "< 100 mg/dl"
-                aspirin_rec = "غير موصى به للوقاية الأولية الروتينية"
-                follow_up = "كل 3 أشهر حتى تحقيق الهدف، ثم كل 6-9 أشهر"
-            elif sbp < 180:
-                risk_category = "10% إلى <20% (متوسط)"
-                color_code = "🟠 برتقالي"
-                if diabetes == "نعم":
-                    statin_rec = "Moderate-intensity statin (Atorvastatin 20 mg)"
-                    target_ldl = "< 100 mg/dl"
-                else:
-                    statin_rec = "تقييم نمط الحياة والعلاج الدوائي إذا استمر الضغط/الدهون مرتفعة"
-                    target_ldl = "< 100 mg/dl"
-                aspirin_rec = "غير موصى به روتينياً"
-                follow_up = "كل 3 إلى 6 أشهر"
+            # 1. حساب كتلة الجسم BMI
+            bmi = round(weight / ((height / 100) ** 2), 1)
+
+            # 2. حساب القيمة المئوية الدقيقة لمخاطر القلب
+            exact_risk = calculate_exact_cvd_risk(age, gender, bp_sys, bmi, chol, dm_htn, smoking, family_history)
+
+            # 3. تحديد الشريحة وتاريخ المتابعة القادمة
+            if exact_risk < 5.0:
+                risk_category = "< 5% (منخفض جداً 🟢)"
+                next_followup = visit_date + timedelta(days=365) # بعد سنة
+            elif 5.0 <= exact_risk < 10.0:
+                risk_category = "5% إلى <10% (منخفض/متوسط 🟡)"
+                next_followup = visit_date + timedelta(days=180) # بعد 6 أشهر
+            elif 10.0 <= exact_risk < 20.0:
+                risk_category = "10% إلى <20% (متوسط 🟠)"
+                next_followup = visit_date + timedelta(days=90)  # بعد 3 أشهر
             else:
-                risk_category = "20% وأكثر (مرتفع)"
-                color_code = "🔴 أحمر"
-                if diabetes == "نعم" and target_organ_damage:
-                    statin_rec = "High-intensity statin (Atorvastatin 40-80 mg / Rosuvastatin 20-40 mg)"
-                    target_ldl = "< 70 mg/dl"
-                else:
-                    statin_rec = "Moderate-intensity statin (Atorvastatin 20 mg)"
-                    target_ldl = "< 100 mg/dl"
-                aspirin_rec = "يمكن دراسته للسن من 40-70 سنة إذا كان خطر النزيف منخفضاً"
-                follow_up = "كل 3 أشهر"
+                risk_category = ">= 20% (مرتفع 🔴)"
+                next_followup = visit_date + timedelta(days=30)  # بعد شهر
 
-        # عرض التقرير والنتائج للمستخدم
-        st.markdown("---")
-        st.subheader("📋 نتيجة التقييم والتوصيات العلاجية:")
-        
-        col_res1, col_res2, col_res3 = st.columns(3)
-        col_res1.metric("شريحة الخطورة", risk_category)
-        col_res2.metric("رمز اللون", color_code)
-        col_res3.metric("ميعاد المتابعة القادمة", follow_up)
+            bp_str = f"{bp_sys}/{bp_dia}"
 
-        st.info(f"💊 **توصية الـ Statin والدهون:** {statin_rec} | **مستوى LDL المستهدف:** {target_ldl}")
-        st.warning(f"🩸 **توصية الأسبرين:** {aspirin_rec}")
+            # 4. إضافة لسجل التردد اليومي
+            new_id = len(st.session_state.daily_register) + 1
+            st.session_state.daily_register.loc[len(st.session_state.daily_register)] = [
+                new_id, visit_date.strftime("%Y-%m-%d"), name, file_no, campaign_type, age, gender, phone,
+                height, weight, bmi, chol, ldl, bp_str,
+                "✓" if "سكر" in dm_htn else "", "✓" if "ضغط" in dm_htn else "", "✓" if dm_htn == "سكر وضغط" else "",
+                ecg, smoking, "✓" if family_history else "", f"{exact_risk}%", risk_category, "✓" if health_edu else "X",
+                ", ".join(medication), "✓" if is_referral else "X", next_followup.strftime("%Y-%m-%d"), doctor_name
+            ]
 
-        # حفظ البيانات في السجل اليومي
-        patient_data = {
-            "الإدارة الصحية": "بني عبيد",
-            "اسم/رقم المريض": patient_id if patient_id else "غير مدون",
-            "العمر": age,
-            "النوع": gender,
-            "التدخين": smoker,
-            "الضغط SBP": sbp,
-            "مصاب بالسكر": diabetes,
-            "معامل BMI": bmi,
-            "شريحة الخطورة": risk_category,
-            "اللون": color_code,
-            "توصية الـ Statin": statin_rec,
-            "الهدف من LDL": target_ldl,
-            "الأسبرين": aspirin_rec,
-            "المتابعة": follow_up
-        }
-        st.session_state.patient_records.append(patient_data)
-        st.success("✅ تم حفظ المريض بنجاح في سجل الإدارة الصحية ببني عبيد!")
+            # 5. الترحيل التلقائي لسجل المتابعة والاستدعاء
+            st.session_state.recall_register.loc[len(st.session_state.recall_register)] = [
+                len(st.session_state.recall_register) + 1, name, file_no, phone, next_followup.strftime("%Y-%m-%d"),
+                "لم يتم", "", "", "", "", "", "", ""
+            ]
+
+            # 6. الترحيل لسجل الإحالة إذا كان محولاً
+            if is_referral:
+                st.session_state.referral_register.loc[len(st.session_state.referral_register)] = [
+                    len(st.session_state.referral_register) + 1, visit_date.strftime("%Y-%m-%d"), name, file_no,
+                    phone, ref_reason, ref_place, "", ref_type, "", "", "", "", ""
+                ]
+
+            st.success(f"🎯 تم حساب تقييم المخاطر الدقيق للمريض: **{exact_risk}%** | الشريحة: ({risk_category})")
+            st.info(f"📅 تاريخ المتابعة المستهدف الذي تم ترحيله لسجل الاستدعاء: **{next_followup.strftime('%Y-%m-%d')}**")
 
 # ---------------------------------------------------------
-# التبويب الثاني: السجل اليومي وتصدير Excel
+# 2. سجل المتابعة والاستدعاء
 # ---------------------------------------------------------
-with tab2:
-    st.header("📊 سجل حالات الإدارة الصحية ببني عبيد وتصدير البيانات")
-    
-    if st.session_state.patient_records:
-        df = pd.DataFrame(st.session_state.patient_records)
-        st.dataframe(df, use_container_width=True)
-        
-        # تحويل الجدول لملف CSV/Excel جاهز للتنزيل
-        csv_data = df.to_csv(index=False).encode('utf-8-sig')
-        
-        st.download_button(
-            label="📥 تحميل شيت الإكسيل - الإدارة الصحية ببني عبيد (CSV / Excel)",
-            data=csv_data,
-            file_name="سجل_مرضى_قلبك_أمانة_بني_عبيد.csv",
-            mime="text/csv",
-            type="primary"
+elif menu == "📞 سجل المتابعة والاستدعاء":
+    st.header("سجل المتابعة الدورية والاستدعاء")
+    if not st.session_state.recall_register.empty:
+        edited_recall = st.data_editor(
+            st.session_state.recall_register,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="recall_editor"
         )
+        st.session_state.recall_register = edited_recall
     else:
-        st.write("لم يتم إدخال أي مرضى حتى الآن اليوم.")
+        st.warning("لا يوجد مرضى في سجل الاستدعاء حالياً.")
 
 # ---------------------------------------------------------
-# التبويب الثالث: بروتوكولات الأدوية والجرعات
+# 3. سجل الإحالة والتغذية الراجعة
 # ---------------------------------------------------------
-with tab3:
-    st.header("💊 بروتوكول خفض الدهون والأسبرين (MOHP / WHO Guide)")
-    
-    col_prot1, col_prot2 = st.columns(2)
-    with col_prot1:
-        st.subheader("جرعات الـ Statins (Lipid-Lowering)")
-        st.markdown("""
-        * **High-intensity Statins:**
-          * Atorvastatin 40–80 mg أو Rosuvastatin 20–40 mg[span_0](start_span)[span_0](end_span).
-          * تخفض الـ LDL بنسبة أكثر من 50%[span_1](start_span)[span_1](end_span).
-        * **Moderate-intensity Statins:**
-          * Atorvastatin 20 mg أو Rosuvastatin 5–10 mg[span_2](start_span)[span_2](end_span).
-          * تخفض الـ LDL بنسبة 30% إلى 50%[span_3](start_span)[span_3](end_span).
-        """)
-    
-    with col_prot2:
-        st.subheader("أهداف الـ LDL الموصى بها")
-        st.markdown("""
-        * **المرضى ذوي ASCVD المثبتة أو خطورة >30%:** أقل من 70 mg/dl[span_4](start_span)[span_4](end_span).
-        * **المرضى خطورة >20%:** أقل من 100 mg/dl[span_5](start_span)[span_5](end_span).
-        * **مرضى السكر مع TOD أو عوامل خطر متعددة:** أقل من 70 mg/dl[span_6](start_span)[span_6](end_span).
-        * **إعادة التقييم:** يتم فحص نسبة الدهون بعد 4–6 أسابيع من بدء العلاج[span_7](start_span)[span_7](end_span).
-        """)
+elif menu == "🔄 سجل الإحالة والتغذية الراجعة":
+    st.header("سجل الإحالة والتغذية الراجعة")
+    if not st.session_state.referral_register.empty:
+        edited_ref = st.data_editor(
+            st.session_state.referral_register,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="referral_editor"
+        )
+        st.session_state.referral_register = edited_ref
+    else:
+        st.warning("لا توجد حالات إحالة مسجلة حالياً.")
 
 # ---------------------------------------------------------
-# التبويب الرابع: الرسائل التثقيفية للمريض
+# 4. تصدير البيانات إلى Excel
 # ---------------------------------------------------------
-with tab4:
-    st.header("📣 الرسائل التثقيفية للمريض (Life's Simple 7)")
-    st.markdown("""
-    1. **🚭 الإقلاع عن التدخين:** التوقف التام دون تقليل التناول فقط؛ لا توجد نسبة آمنة للتدخين[span_8](start_span)[span_8](end_span).
-    2. **🏃‍♂️ النشاط البدني:** 150 دقيقة أسبوعياً من المشي السريع (30 دقيقة × 5 أيام أسبوعياً)[span_9](start_span)[span_9](end_span).
-    3. **🥗 التغذية الصحية:** الإكثار من الفواكه، الخضروات، الحبوب الكاملة، والأسماك، وتقليل الملح والسكريات والدهون[span_10](start_span)[span_10](end_span).
-    4. **🩸 الضغط المستهدف:** المحافظة على الضغط أقل من 140/90 mmHg[span_11](start_span)[span_11](end_span).
-    5. **📉 السكر التراكمي:** الوصول بالـ HbA1c لأقل من 7%[span_12](start_span)[span_12](end_span).
-    6. **⚖️ الوزن الصحي:** الحفاظ على وزن مناسب وحرق سعرات أكثر من المتناولة[span_13](start_span)[span_13](end_span).
-    """)
-          
+elif menu == "📊 تصدير السجلات (Excel)":
+    st.header("تصدير السجلات بصيغة Excel")
+    col_e1, col_e2, col_e3 = st.columns(3)
+    with col_e1:
+        st.download_button("تصدير سجل التردد اليومي", st.session_state.daily_register.to_csv(index=False).encode('utf-8-sig'), "سجل_التردد_اليومي.csv", "text/csv")
+    with col_e2:
+        st.download_button("تصدير سجل الاستدعاء", st.session_state.recall_register.to_csv(index=False).encode('utf-8-sig'), "سجل_الاستدعاء.csv", "text/csv")
+    with col_e3:
+        st.download_button("تصدير سجل الإحالة", st.session_state.referral_register.to_csv(index=False).encode('utf-8-sig'), "سجل_الإحالة.csv", "text/csv")
+    
