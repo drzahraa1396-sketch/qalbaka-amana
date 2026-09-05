@@ -5,6 +5,7 @@ from datetime import datetime, date
 import io
 import openpyxl
 
+# يجب أن يكون هذا الأمر في البداية تماماً
 st.set_page_config(
     page_title="مبادرة قلبك أمانة - وحدة ميت فارس",
     page_layout="wide",
@@ -21,19 +22,18 @@ def load_data_from_gsheets():
     except Exception:
         return pd.DataFrame()
 
-# Initialize local state if GSheets is empty
 if 'daily_records' not in st.session_state:
     st.session_state.daily_records = []
 
-# Header UI
+# الواجهة الرئيسية
 st.title("🫀 مبادرة قلبك أمانة - وحدة ميت فارس الصحية")
 st.markdown("---")
 
 st.info("💡 تم ربط التطبيق بـ Google Sheets بنجاح! البيانات الآن تُحفظ بشكل دائم وتلقائي.")
 
-# Navigation Tabs
+# التبويبات
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📝 تسجل حالة جديدة", 
+    "📝 تسجيل حالة جديدة", 
     "📊 سجل التردد اليومي", 
     "📞 سجل الاستدعاء والإحالة", 
     "📈 البيان الشهري المجمع"
@@ -59,7 +59,6 @@ with tab1:
 
         submitted = st.form_submit_button("💾 حفظ الحالة وحساب المخاطر")
         if submitted:
-            # Basic CVD Risk Calculation
             risk_score = 5.0
             if age > 50: risk_score += 5.0
             if smoker == "نعم": risk_score += 5.0
@@ -104,4 +103,4 @@ with tab4:
     st.subheader("البيان الشهري المجمع - وزارة الصحة والسكان")
     if st.button("🔄 تجميع البيان الشهري تلقائياً"):
         st.success("تم تجميع البيان الشهري لوحدة ميت فارس بنجاح جاهز للتصدير.")
-        
+            
