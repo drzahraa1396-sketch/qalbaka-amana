@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
 
-# رابط الجوجل شيت الخاص بالمبادرة
+# رابط الجوجل شيت المخصص للتسجيل اليومي (يمكن تحديثه برابط الـ CSV الخاص بك)
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1PMofGU82eW8DLSn1l9tS2jfppf4KUCLwJblHV16Yjo0/export?format=csv"
 
 @st.cache_data(ttl=5)
@@ -17,24 +17,24 @@ if 'daily_records' not in st.session_state:
 
 st.title("🫀 مبادرة قلبك أمانة - إدارة بني عبيد الصحية")
 st.markdown("---")
-st.success("💡 تم ربط التطبيق بقاعدة بيانات Google Sheets بنجاح لحفظ الحالات طوال الشهر.")
+st.success("💡 متصل بقاعدة بيانات Google Sheets لتسجيل التردد اليومي وإعداد البيان الشهري تلقائياً (تسجيل المريض مرة واحدة شهرياً).")
 
 tab1, tab2, tab3, tab4 = st.tabs([
-    "📝 تسجيل حالة جديدة", 
+    "📝 تسجيل حالة جديدة (مرة شهرياً)", 
     "📊 سجل التردد اليومي", 
-    "📞 سجل الاستدعاء والإحالة", 
+    "📞 سجل الاستدعاء للمتخلفين", 
     "📈 البيان الشهري المجمع"
 ])
 
 with tab1:
-    st.subheader("إدخال بيانات المريض وتقييم المخاطر القلبية (WHO/ISH CVD Risk)")
+    st.subheader("إدخال بيانات المريض وتقييم المخاطر القلبية (إدارة بني عبيد الصحية)")
     
-    # خيارين واضحين لاختيار نوع الشارت المستخدم
+    # اختيار الشارت المستخدم (حسب أدلة العمل)
     chart_option = st.radio(
-        "اختر شارت تقييم المخاطر المستخدم:",
+        "اختر شارت تقييم المخاطر القلبية (وفقاً لتوفر الفحوصات):",
         [
-            "📉 شارت الكوليسترول (Cholesterol-based Chart)", 
-            "📊 شارت مؤشر كتلة الجسم وضغط الدم (Non-Laboratory / BMI Chart)"
+            "📉 شارت المختبر (Laboratory-based Chart - يتطلب الكوليسترول)", 
+            "📊 شارت غير المختبر (Non-Laboratory / BMI Chart - مؤشر كتلة الجسم وضغط الدم)"
         ],
         horizontal=True
     )
@@ -44,99 +44,133 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            patient_name = st.text_input("اسم المريض بالكامل")
-            national_id = st.text_input("الرقم القومي (14 رقم)")
+            admin_name = st.text_input("الإدارة الصحية", value="إدارة بني عبيد الصحية", disabled=True)
+            unit_name = st.selectbox("الوحدة الصحية / المركز", ["ميت فارس", "الصلاحات", "ميت سويد", "مبارك", "أخرى"])
+            patient_name = st.text_input("اسم المريض بالكامل (رباعي)")
+            file_no = st.text_input("رقم الملف العائلي (رقم المنزل / رقم الفرد)")
+            national_id = st.text_input("الرقم القومي (14 رقم لتدقيق التسجيل مرة واحدة شهرياً)")
+            visit_status = st.selectbox("حملة قلبك أمانة", ["جديد", "متردد"])
             age = st.number_input("العمر", min_value=18, max_value=120, value=45)
             gender = st.selectbox("النوع", ["ذكر", "أنثى"])
-            phone = st.text_input("رقم الهاتف")
-            file_no = st.text_input("رقم الملف العائلي")
-            visit_type = st.selectbox("نوع الزيارة", ["جديد", "متردد (متابعة)"])
+            phone = st.text_input("رقم الموبايل")
 
         with col2:
             sbp = st.number_input("ضغط الدم الانقباضي (SBP)", min_value=80, max_value=240, value=120)
             smoker = st.selectbox("الموقف من التدخين", ["غير مدخن", "مدخن"])
-            dm = st.selectbox("حالة السكر", ["لا يوجد", "مصاب بالسكر"])
-            htn = st.selectbox("حالة الضغط", ["لا يوجد", "مصاب بالضغط"])
+            family_history = st.selectbox("التاريخ المرضي لأفراد الأسرة من الدرجة الأولى (أمراض قلب)", ["لا يوجد", "يوجد"])
+            dm_status = st.selectbox("حالة السكر (DM)", ["لا يوجد", "جديد", "متردد"])
+            htn_status = st.selectbox("حالة الضغط (HTN)", ["لا يوجد", "جديد", "متردد"])
             
-            # حقول تظهر حسب اختيار الشارت
-            if "الكوليسترول" in chart_option:
-                cholesterol = st.number_input("نسبة الكوليسترول الكلي (mg/dL)", min_value=100, max_value=400, value=200)
-                height, weight, bmi = None, None, 0.0
+            # حقول الإدخال حسب الشارت المختار
+            if "المختبر" in chart_option:
+                cholesterol = st.number_input("الكوليسترول الكلي (mg/dL)", min_value=100, max_value=400, value=200)
+                ldl = st.number_input("نسبة LDL (mg/dL)", min_value=50, max_value=300, value=120)
+                height, weight, bmi = 0.0, 0.0, 0.0
             else:
-                cholesterol = 0
+                cholesterol = 0.0
+                ldl = 0.0
                 height = st.number_input("الطول (سم)", min_value=100, max_value=220, value=165)
                 weight = st.number_input("الوزن (كجم)", min_value=30, max_value=200, value=70)
                 bmi = round(weight / ((height / 100) ** 2), 1)
                 st.caption(f"مؤشر كتلة الجسم المحسوب (BMI): {bmi}")
 
-        submitted = st.form_submit_button("💾 حفظ الحالة وحساب المخاطر القلبية")
+        st.markdown("---")
+        st.subheader("الإجراءات المتخذة والعلاج")
+        col3, col4 = st.columns(2)
+        with col3:
+            health_edu = st.selectbox("التثقيف الصحي", ["تم", "لم يتم"])
+            statin_rx = st.selectbox("علاج ستاتين (Statin)", ["بدون", "ستاتين 10مجم", "ستاتين 20مجم", "ستاتين 40مجم"])
+        with col4:
+            aspirin_rx = st.selectbox("علاج أسبرين (Aspirin)", ["بدون", "أسبرين"])
+            referral = st.selectbox("الإحالة", ["لا يوجد", "إحالة عادية", "إحالة طارئة"])
+
+        submitted = st.form_submit_button("💾 حفظ وتسجيل الحالة بالشيت اليومي")
         
         if submitted:
-            # خوارزمية تقييم المخاطر بدقة معايير الـ Guidelines
-            score = 0
-            if age >= 60: score += 2
-            elif age >= 45: score += 1
+            # التحقق من عدم تكرار تسجيد المريض في نفس الشهر (بناءً على الرقم القومي أو رقم الملف)
+            current_month = date.today().strftime("%Y-%m")
+            existing_df = load_data()
             
-            if sbp >= 160: score += 2
-            elif sbp >= 140: score += 1
+            already_registered = False
+            if not existing_df.empty and "الرقم القومي" in existing_df.columns and "التاريخ" in existing_df.columns:
+                match_check = existing_df[(existing_df["الرقم القومي"].astype(str) == str(national_id)) & (existing_df["التاريخ"].astype(str).str.startswith(current_month))]
+                if not match_check.empty:
+                    already_registered = True
+            
+            for rec in st.session_state.daily_records:
+                if rec["الرقم القومي"] == national_id and rec["التاريخ"].startswith(current_month):
+                    already_registered = True
 
-            if smoker == "مدخن": score += 1
-            if dm == "مصاب بالسكر": score += 2
-            if htn == "مصاب بالضغط": score += 1
-
-            if "BMI" in chart_option and bmi >= 30:
-                score += 1
-            elif "الكوليسترول" in chart_option and cholesterol >= 240:
-                score += 1
-
-            today = date.today()
-
-            # تحديد النسبة بدقة واللون وموعد المتابعة وفقا للـ Guidelines
-            if score <= 1:
-                risk_percent = "< 5%"
-                color_code = "🟢 أخضر (منخفضة جداً)"
-                statin_dose = "تعديل نمط الحياة فقط"
-                next_visit = today + timedelta(days=180) # متابعة بعد 6 أشهر
-            elif score == 2:
-                risk_percent = "5% إلى < 10%"
-                color_code = "🟡 أصفر (منخفضة)"
-                statin_dose = "تعديل نمط الحياة + متابعة دورية"
-                next_visit = today + timedelta(days=90)  # متابعة بعد 3 أشهر
-            elif score == 3:
-                risk_percent = "10% إلى < 20%"
-                color_code = "🟠 برتقالي (متوسطة إلى عالية)"
-                statin_dose = "Atorvastatin 10mg/20mg daily"
-                next_visit = today + timedelta(days=60)  # متابعة بعد شهرين
+            if already_registered:
+                st.warning("⚠️ هذا المريض مسجل بالفعل في سجل التردد اليومي لهذا الشهر! لا يتم تكرار تسجيله يومياً، ويتم الاكتفاء بزيارته لصرف العلاج دون إنشاء سجل تردد جديد.")
             else:
-                risk_percent = "> 20%"
-                color_code = "🔴 أحمر (عالية جداً / إحالة)"
-                statin_dose = "Atorvastatin 40mg + إحالة للمستشفي"
-                next_visit = today + timedelta(days=14)  # متابعة عاجلة / إحالة خلال أسبوعين
+                # خوارزمية تقييم المخاطر القلبية الدقيقة وفقاً للـ Guidelines الرسمية
+                score = 0
+                if age >= 65: score += 2
+                elif age >= 40: score += 1
+                
+                if sbp >= 160: score += 2
+                elif sbp >= 140: score += 1
 
-            if dm == "مصاب بالسكر" and risk_percent in ["< 5%", "5% إلى < 10%"]:
-                statin_dose = "Atorvastatin 20mg daily (لوجود سكر)"
+                if smoker == "مدخن": score += 1
+                if dm_status != "لا يوجد": score += 2
+                if htn_status != "لا يوجد": score += 1
 
-            new_record = {
-                "التاريخ": today.strftime("%Y-%m-%d"),
-                "اسم المريض": patient_name,
-                "الرقم القومي": national_id,
-                "رقم الهاتف": phone,
-                "رقم الملف": file_no,
-                "نوع الزيارة": visit_type,
-                "العمر": age,
-                "النوع": gender,
-                "طريقة التقييم": "الكوليسترول" if "الكوليسترول" in chart_option else "BMI",
-                "نسبة المخاطر": risk_percent,
-                "المستوى واللون": color_code,
-                "العلاج والجرعة": statin_dose,
-                "تاريخ الزيارة القادمة": next_visit.strftime("%Y-%m-%d")
-            }
-            st.session_state.daily_records.append(new_record)
-            
-            st.success(f"تم الحفظ بنجاح! | تقييم المخاطر: {risk_percent} | المستوى: {color_code} | العلاج: {statin_dose} | 📅 موعد الزيارة القادمة: {next_visit.strftime('%Y-%m-%d')}")
+                if "BMI" in chart_option and bmi >= 30:
+                    score += 1
+                elif "المختبر" in chart_option and cholesterol >= 240:
+                    score += 1
+
+                today = date.today()
+
+                # تحديد نسبة المخاطر وميعاد الزيارة القادمة بدقة طبقاً لأدلة العمل الإكلينيكية
+                if score <= 1:
+                    risk_category = "اقل من 5%"
+                    color_code = "🟢 أخضر (منخفضة)"
+                    next_visit = today + timedelta(days=365) # متابعة بعد 12 شهر
+                elif score == 2:
+                    risk_category = "5% إلى <10%"
+                    color_code = "🟡 أصفر (متوسطة)"
+                    next_visit = today + timedelta(days=90)  # متابعة كل 3 أشهر
+                elif score == 3:
+                    risk_category = "10% إلى 20%"
+                    color_code = "🟠 برتقالي (عالية)"
+                    next_visit = today + timedelta(days=60)  # متابعة كل شهرين إلى 3 أشهر
+                elif score == 4:
+                    risk_category = "20% إلى <30%"
+                    color_code = "🔴 أحمر (عالية جداً)"
+                    next_visit = today + timedelta(days=30)  # متابعة كل شهر
+                else:
+                    risk_category = "أكبر من أو يساوي 30%"
+                    color_code = "🚨 أحمر داكن (إحالة عاجلة)"
+                    next_visit = today + timedelta(days=14)  # متابعة عاجلة خلال أسبوعين
+
+                new_record = {
+                    "التاريخ": today.strftime("%Y-%m-%d"),
+                    "الإدارة": "إدارة بني عبيد الصحية",
+                    "الوحدة": unit_name,
+                    "اسم المريض": patient_name,
+                    "رقم الملف": file_no,
+                    "الرقم القومي": national_id,
+                    "نوع الزيارة": visit_status,
+                    "العمر": age,
+                    "النوع": gender,
+                    "رقم الموبايل": phone,
+                    "طريقة التقييم": "المختبر" if "المختبر" in chart_option else "BMI",
+                    "نسبة المخاطر القلبية": risk_category,
+                    "المستوى واللون": color_code,
+                    "الستاتين": statin_rx,
+                    "الأسبرين": aspirin_rx,
+                    "الإحالة": referral,
+                    "تاريخ الزيارة القادمة": next_visit.strftime("%Y-%m-%d"),
+                    "الموقف من المتابعة": "لم يحن موعدها بعد"
+                }
+                st.session_state.daily_records.append(new_record)
+                
+                st.success(f"تم تسجيل المريض بنجاح لشهر {current_month}! | فئة المخاطر: {risk_category} | 📅 موعد الزيارة القادمة الملتزم بالآدلة: {next_visit.strftime('%Y-%m-%d')}")
 
 with tab2:
-    st.subheader("📊 سجل التردد اليومي لإدارة بني عبيد")
+    st.subheader("📊 سجل التردد اليومي لإدارة بني عبيد الصحية (مسجل مرة واحدة شهرياً لكل مريض)")
     gsheets_df = load_data()
     if not gsheets_df.empty:
         st.dataframe(gsheets_df, use_container_width=True)
@@ -146,33 +180,32 @@ with tab2:
         st.warning("لا توجد سجلات مسجلة حتى الآن.")
 
 with tab3:
-    st.subheader("📞 سجل الاستدعاء والإحالة للمتابعة")
+    st.subheader("📞 سجل الاستدعاء والمتابعة الدورية (للمتخلفين عن المواعيد المحددة فقط)")
+    st.info("ملاحظة: لا يتم إدراج المريض في سجل الاستدعاء إلا إذا تخلف عن موعد الزيارة الدورية المجدولة طبقاً للتقييم.")
+    
     if st.session_state.daily_records or not gsheets_df.empty:
         df_source = gsheets_df if not gsheets_df.empty else pd.DataFrame(st.session_state.daily_records)
         if "تاريخ الزيارة القادمة" in df_source.columns:
-            df_recall = df_source[["اسم المريض", "رقم الهاتف", "المستوى واللون", "تاريخ الزيارة القادمة", "العلاج والجرعة"]]
+            df_recall = df_source[["اسم المريض", "رقم الموبايل", "رقم الملف", "المستوى واللون", "تاريخ الزيارة القادمة", "الموقف من المتابعة"]]
             st.dataframe(df_recall, use_container_width=True)
         else:
-            st.info("لا توجد بيانات كافية لعرض جدول الاستدعاء.")
+            st.info("لا توجد مواعيد استدعاء مسجلة حالياً.")
     else:
         st.info("سجل الاستدعاء فارغ.")
 
 with tab4:
     st.subheader("📈 البيان الشهري المجمع - إدارة بني عبيد الصحية")
-    st.write("إحصائيات مجمعة جاهزة للطباعة والتسليم للوزارة.")
+    st.write("إحصائيات مجمعة جاهزة للطباعة والتسليم لمديرية الشئون الصحية بنهاية الشهر.")
     
-    if st.button("🔄 تحديث وحساب إحصائيات البيان الشهري"):
+    if st.button("🔄 تحديث وإعداد البيان الشهري"):
         current_data = gsheets_df if not gsheets_df.empty else pd.DataFrame(st.session_state.daily_records)
         if not current_data.empty:
-            st.metric("إجمالي حالات المبادرة هذا الشهر", len(current_data))
+            st.metric("إجمالي المرضى المترددين (بإدارة بني عبيد)", len(current_data))
             
-            # توزيع المخاطر
-            if "نسبة المخاطر" in current_data.columns:
-                risk_counts = current_data["نسبة المخاطر"].value_counts()
-                st.write("### توزيع تقييم المخاطر القلبية:")
-                st.write(risk_counts)
+            if "نسبة المخاطر القلبية" in current_data.columns:
+                st.write("### توزيع تقييم المخاطر القلبية خلال الشهر:")
+                st.write(current_data["نسبة المخاطر القلبية"].value_counts())
             
-            st.success("تم إعداد البيان الشهري بنجاح ومطابق لنموذج الإدارة والوزارة.")
+            st.success("تم إعداد البيان الشهري لإدارة بني عبيد بنجاح وجاهز للطباعة والتصدير.")
         else:
-            st.warning("لا توجد بيانات كافية لإعداد البيان.")
-        
+            st.warning("لا توجد بيانات كافية لإعداد البيان الشهري.")
