@@ -1,37 +1,29 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime, date
-import io
-import openpyxl
+from datetime import date
 
-# يجب أن يكون هذا الأمر في البداية تماماً
 st.set_page_config(
     page_title="مبادرة قلبك أمانة - وحدة ميت فارس",
-    page_layout="wide",
-    initial_sidebar_state="expanded"
+    page_layout="wide"
 )
 
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1PMofGU82eW8DLSn1l9tS2jfppf4KUCLwJblHV16Yjo0/export?format=csv"
 
 @st.cache_data(ttl=5)
-def load_data_from_gsheets():
+def load_data():
     try:
-        df = pd.read_csv(SHEET_CSV_URL)
-        return df
+        return pd.read_csv(SHEET_CSV_URL)
     except Exception:
         return pd.DataFrame()
 
 if 'daily_records' not in st.session_state:
     st.session_state.daily_records = []
 
-# الواجهة الرئيسية
 st.title("🫀 مبادرة قلبك أمانة - وحدة ميت فارس الصحية")
 st.markdown("---")
 
-st.info("💡 تم ربط التطبيق بـ Google Sheets بنجاح! البيانات الآن تُحفظ بشكل دائم وتلقائي.")
+st.info("💡 تم ربط التطبيق بـ Google Sheets بنجاح! البيانات تحفظ تلقائياً.")
 
-# التبويبات
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 تسجيل حالة جديدة", 
     "📊 سجل التردد اليومي", 
@@ -87,7 +79,7 @@ with tab1:
 
 with tab2:
     st.subheader("سجل التردد اليومي للمرضى")
-    gsheets_df = load_data_from_gsheets()
+    gsheets_df = load_data()
     if not gsheets_df.empty:
         st.dataframe(gsheets_df, use_container_width=True)
     elif st.session_state.daily_records:
@@ -103,4 +95,4 @@ with tab4:
     st.subheader("البيان الشهري المجمع - وزارة الصحة والسكان")
     if st.button("🔄 تجميع البيان الشهري تلقائياً"):
         st.success("تم تجميع البيان الشهري لوحدة ميت فارس بنجاح جاهز للتصدير.")
-            
+        
