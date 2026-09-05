@@ -82,32 +82,32 @@ with tab1:
 
             today = date.today()
 
-            # تحديد النسبة، اللون، الجرعة، وتاريخ الزيارة القادمة
+            # تعديل فترات المتابعة بدقة المبادرة
             if score <= 1:
                 risk_percent = "< 10%"
                 color_code = "🟢 أخضر (منخفضة)"
                 statin_dose = "تعديل نمط الحياة فقط"
-                next_visit = today + timedelta(days=365) # بعد سنة
+                next_visit = today + timedelta(days=90) # متابعة بعد 3 أشهر (3 - 6 أشهر)
             elif score == 2:
                 risk_percent = "10% إلى < 20%"
                 color_code = "🟡 أصفر (متوسطة)"
                 statin_dose = "Atorvastatin 10mg daily"
-                next_visit = today + timedelta(days=90)  # بعد 3 أشهر
+                next_visit = today + timedelta(days=60)  # متابعة بعد شهرين
             elif score == 3:
                 risk_percent = "20% إلى < 30%"
                 color_code = "🟠 برتقالي (عالية)"
                 statin_dose = "Atorvastatin 20mg daily"
-                next_visit = today + timedelta(days=30)  # بعد شهر
+                next_visit = today + timedelta(days=30)  # متابعة بعد شهر
             elif score == 4:
                 risk_percent = "30% إلى < 40%"
                 color_code = "🔴 أحمر (عالية جداً)"
                 statin_dose = "Atorvastatin 20mg/40mg daily"
-                next_visit = today + timedelta(days=14)  # بعد أسبوعين
+                next_visit = today + timedelta(days=14)  # متابعة بعد أسبوعين
             else:
                 risk_percent = "≥ 40%"
                 color_code = "🟤 أحمر داكن (شديدة)"
                 statin_dose = "Atorvastatin 40mg + إحالة"
-                next_visit = today + timedelta(days=7)   # إحالة/استدعاء عاجل خلال أسبوع
+                next_visit = today + timedelta(days=7)   # إحالة واستدعاء خلال أسبوع
 
             if dm == "نعم" and risk_percent in ["< 10%", "10% إلى < 20%"]:
                 statin_dose = "Atorvastatin 20mg daily (وجود سكر)"
@@ -125,7 +125,7 @@ with tab1:
             }
             st.session_state.daily_records.append(new_record)
             
-            st.success(f"تم الحفظ بنجاح! | نسبة المخاطر: {risk_percent} | المستوى واللون: {color_code} | الجرعة: {statin_dose} | 📅 موعد الزيارة القادمة: {next_visit.strftime('%Y-%m-%d')}")
+            st.success(f"تم الحفظ بنجاح! | فئة المخاطر: {risk_percent} | المستوى واللون: {color_code} | الجرعة: {statin_dose} | 📅 موعد الزيارة القادمة (المتابعة): {next_visit.strftime('%Y-%m-%d')}")
 
 with tab2:
     st.subheader("سجل التردد اليومي للمرضى")
@@ -145,10 +145,10 @@ with tab3:
         ]
         st.dataframe(df_recall, use_container_width=True)
     else:
-        st.info("سجل الاستدعاء فارغ حالياً. سيتحدث تلقائياً بمواعيد الاستدعاء فور إدخال الحالات.")
+        st.info("سجل الاستدعاء فارغ حالياً.")
 
 with tab4:
     st.subheader("البيان الشهري المجمع - وزارة الصحة والسكان")
     if st.button("🔄 تجميع البيان الشهري تلقائياً"):
         st.success("تم تجميع البيان الشهري لوحدة ميت فارس بنجاح جاهز للتصدير.")
-                
+        
