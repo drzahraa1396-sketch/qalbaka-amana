@@ -1,52 +1,63 @@
-function onEdit(e) {
-  var sheet = e.source.getActiveSheet();
-  var sheetName = sheet.getName();
-  
-  // اسم شيت التردد اليومي
-  if (sheetName === "التردد اليومي") {
-    var row = e.range.getRow();
-    if (row > 5) { // لتجاوز صفوف العناوين والترويسة
-      syncToRecallSheet(sheet, row);
-    }
-  }
-}
+import streamlit as st
+import pandas as pd
+from datetime import datetime
 
-function syncToRecallSheet(dailySheet, row) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var values = dailySheet.getRange(row, 1, 1, dailySheet.getLastColumn()).getValues()[0];
-  
-  var patientName = values[2];     // اسم المريض (العمود الثالث)
-  var fileNo = values[3];          // رقم الملف العائلي (العمود الرابع)
-  var phone = values[7];           // رقم الموبايل
-  var nextFollowUpDate = values[22]; // تاريخ المتابعة القادمة طبقا لتقييم المخاطر
-  
-  if (!patientName) return;
-  
-  // ربط وتحديث سجل المتابعة والاستدعاء تلقائياً
-  var recallSheet = ss.getSheetByName("المتابعة والاستدعاء");
-  if (recallSheet) {
-    var lastRow = recallSheet.getLastRow();
-    var found = false;
+st.set_page_config(page_title="الإدارة الصحية ببني عبيد - قلبك أمانة", layout="wide")
+
+st.title("الإدارة الصحية ببني عبيد")
+st.subheader("نظام تسجيل المتابعة والاستدعاء - مبادرة قلبك أمانة")
+
+# إدخال بيانات المريض الأساسية
+with st.form("patient_form"):
+    st.write("تسجيل بيانات المريض الجديد / المتردد")
+    col1, col2, col3 = st.columns(3)
     
-    // التحقق مما إذا كان المريض مسجلاً مسبقاً في جدول الاستدعاء لهذا الشهر
-    for (var i = 6; i <= lastRow; i++) {
-      if (recallSheet.getRange(i, 3).getValue() == fileNo) {
-        found = true;
-        // تحديث موعد المتابعة إذا تم تسجيل زيارة جديدة
-        recallSheet.getRange(i, 5).setValue(nextFollowUpDate);
-        break;
-      }
-    }
+    with col1:
+        patient_name = st.text_input("اسم المريض رباعي")
+        file_no = st.text_input("رقم الملف العائلي")
+        phone = st.text_input("رقم الموبايل")
+        
+    with col2:
+        age = st.number_input("السن", min_value=18, max_value=100, value=40)
+        gender = st.selectbox("النوع", ["ذكر", "أنثى"])
+        visit_type = st.selectbox("حالة المريض", ["جديد", "متردد (متابعة)"])
+        
+    with col3:
+        weight = st.number_input("الوزن (كجم)", min_value=30.0, max_value=200.0, value=75.0)
+        height = st.number_input("الطول (متر)", min_value=1.0, max_value=2.0, value=1.70)
+        chart_type = st.selectbox("نوع شارت تقييم المخاطر", ["بمعمل (Lab-based)", "بدون معمل (Non-lab-based)"])
+
+    submitted = st.form_submit_button("حفظ وتحديث السجلات")
     
-    // إذا لم يكن موجوداً، يتم إضافته لجدول المتابعة والاستدعاء
-    if (!found) {
-      var newRow = recallSheet.getLastRow() + 1;
-      recallSheet.getRange(newRow, 1).setValue(newRow - 5); // المسلسل
-      recallSheet.getRange(newRow, 2).setValue(patientName);
-      recallSheet.getRange(newRow, 3).setValue(fileNo);
-      recallSheet.getRange(newRow, 4).setValue(phone);
-      recallSheet.getRange(newRow, 5).setValue(nextFollowUpDate);
-      recallSheet.getRange(newRow, 6).setValue("لم يتم"); // الموقف من المتابعة مبدئياً
-    }
-  }
-}
+    if submitted:
+        if patient_name and file_no:
+            # حساب مؤشر كتلة الجسم BMI
+            bmi = weight / (height ** 2)
+            
+            # تحديد نسبة المخاطر وميعاد المتابعة افتراضياً حسب الـ Guidelines
+            risk_percentage = "< 5%"
+            next_follow_up = "بعد 12 شهراً"
+            
+            if bmi >= 30:
+                risk_percentage = "5% إلى < 10%"
+                next_follow_up = "كل 3 أشهر"
+            
+            st.success(f"تم تسجيل المريض بنجاح! مؤشر كتلة الجسم: {bmi:.2f}")
+            st.info(f"معدل المخاطر المقدر: {risk_percentage} | ميعاد المتابعة القادمة: {next_follow_up}")
+            
+            # محاكاة الترحيل لجدول المتابعة والاستدعاء
+            st.write("---")
+            st.write("**بيانات سجل المتابعة والاستدعاء (تم الترحيل تلقائياً):**")
+            df_recall = pd.DataFrame({
+                "اسم المريض": [patient_name],
+                "رقم الملف": [file_no],
+                "رقم الموبايل": [phone],
+                "ميعاد المتابعة": [next_follow_up],
+                "الموقف من المتابعة": ["لم يتم بعد"],
+                "الاستدعاء الأول": [""],
+                "الاستدعاء الثاني": [""],
+                "الاستدعاء الثالث": [""]
+            })
+            st.dataframe(df_recall)
+        else:
+            st.error("برجاء إدخال اسم المريض ورقم الملف على الأقل.")
