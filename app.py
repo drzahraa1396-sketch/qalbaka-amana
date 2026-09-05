@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 
-st.set_page_config(page_title="مبادرة قلبك أمانة - وحدة ميت فارس", page_layout="wide")
-
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1PMofGU82eW8DLSn1l9tS2jfppf4KUCLwJblHV16Yjo0/export?format=csv"
 
 @st.cache_data(ttl=5)
@@ -19,7 +17,7 @@ if 'daily_records' not in st.session_state:
 st.title("🫀 مبادرة قلبك أمانة - وحدة ميت فارس الصحية")
 st.markdown("---")
 
-st.info("💡 تم ربط التطبيق بـ Google Sheets بنجاح!")
+st.info("💡 تم ربط التطبيق بـ Google Sheets بنجاح! البيانات تحفظ تلقائياً.")
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "📝 تسجيل حالة جديدة", 
@@ -92,3 +90,4 @@ with tab4:
     st.subheader("البيان الشهري المجمع - وزارة الصحة والسكان")
     if st.button("🔄 تجميع البيان الشهري تلقائياً"):
         st.success("تم تجميع البيان الشهري لوحدة ميت فارس بنجاح جاهز للتصدير.")
+        
