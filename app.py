@@ -476,4 +476,267 @@ elif page == "➕ زيارة جديدة":
     with c1:
         visit_date = st.date_input("تاريخ الزيارة", date.today(), key="visit_date")
         national_id = st.text_input("الرقم القومي *", max_chars=14, key="national_id")
-        if st.button("🔎 بحث عن المريض",
+        if st.button("🔎 بحث عن المريض", use_container_width=True):
+            p = store.patient(national_id)
+            if p:
+                set_patient_defaults(p)
+                st.session_state["found_patient"] = True
+                st.success("تم العثور على المريض وتم تحميل بياناته.")
+            else:
+                st.session_state["found_patient"] = False
+                st.info("المريض غير موجود — سيتم تسجيله كمريض جديد.")
+    with c2:
+        name = st.text_input("اسم المريض رباعي *", key="name")
+        dob = st.date_input("تاريخ الميلاد", date(1980,1,1), min_value=date(1900,1,1), max_value=date.today(), key="dob")
+        sex = st.selectbox("النوع", ["ذكر","أنثى"], key="sex")
+        family_file = st.text_input("رقم الملف العائلي", key="family_file")
+    with c3:
+        mobile = st.text_input("رقم الموبايل", key="mobile")
+        governorate = st.text_input("المحافظة", key="governorate")
+        health_admin = st.text_input("الإدارة الصحية", key="health_admin")
+        unit = st.text_input("الوحدة / المركز", key="unit")
+        campaign_status = st.selectbox("حملة قلبك أمانة", ["جديد","متردد"])
+
+    age = max(0, (visit_date - dob).days // 365)
+    st.metric("العمر المحسوب", age)
+
+    if store.exists_visit_month(national_id, visit_date.year, visit_date.month) if national_id else False:
+        st.warning("⚠️ يوجد بالفعل تسجيل لهذا الرقم القومي في نفس الشهر. لن يسمح التطبيق بإنشاء زيارة ثانية.")
+
+    st.subheader("2) القياسات")
+    a,b,c,d,e = st.columns(5)
+    with a: height = st.number_input("الطول (سم)", 80.0, 250.0, 165.0, key="height")
+    with b: weight = st.number_input("الوزن (كجم)", 20.0, 300.0, 70.0, key="weight")
+    bmi = round(weight / ((height/100)**2), 1)
+    with c: st.metric("BMI", bmi)
+    with d: sbp = st.number_input("SBP", 60, 260, 130, key="sbp")
+    with e: dbp = st.number_input("DBP", 30, 160, 80, key="dbp")
+    st.caption("يتم حفظ SBP وDBP معًا. جدول WHO المرفوع لحساب الخطر يستخدم SBP، وليس DBP.")
+
+    st.subheader("3) الأمراض وعوامل الخطورة")
+    a,b,c,d,e = st.columns(5)
+    with a: diabetes = st.selectbox("السكري", ["لا","نعم"], key="diabetes")
+    with b: hypertension = st.selectbox("الضغط", ["لا","نعم"], key="hypertension")
+    with c: smoking = st.selectbox("التدخين", ["مدخن","غير مدخن"], key="smoking")
+    with d: family_history = st.selectbox("تاريخ مرضي عائلي", ["يوجد","لا يوجد"], key="family_history")
+    with e: ecg = st.selectbox("رسم القلب", ["غير مطلوب","جديد","متابعة","طبيعي","غير طبيعي"], key="ecg")
+    a,b,c,d = st.columns(4)
+    with a: diabetes_status = st.selectbox("حالة السكر", ["جديد","متردد","غير منطبق"], key="diabetes_status")
+    with b: hypertension_status = st.selectbox("حالة الضغط", ["جديد","متردد","غير منطبق"], key="hypertension_status")
+    with c: established_ascvd = st.checkbox("ASCVD مثبتة؟", key="ascvd")
+    with d: ckd = st.checkbox("CKD؟", key="ckd")
+    a,b,c,d = st.columns(4)
+    with a: tod = st.checkbox("Target Organ Damage / TOD؟", key="tod")
+    with b: multiple_rf = st.checkbox("Multiple additional risk factors؟", key="multiple_rf")
+    with c: pregnancy = st.checkbox("حمل", key="pregnancy")
+    with d: lactation = st.checkbox("رضاعة", key="lactation")
+
+    st.subheader("4) التحاليل وتقييم الخطورة")
+    method = st.radio("طريقة التقييم", ["معمل / Cholesterol","BMI / بدون معمل"], horizontal=True)
+    chol = None; ldl = None
+    if method == "معمل / Cholesterol":
+        a,b = st.columns(2)
+        with a: chol = st.number_input("Total Cholesterol (mg/dL)", 50.0, 600.0, 190.0, key="chol")
+        with b: ldl = st.number_input("LDL (mg/dL)", 20.0, 400.0, 100.0, key="ldl")
+    else:
+        st.info("الطريقة غير المعملية تستخدم العمر + الجنس + التدخين + SBP + BMI طبقًا للجدول المرفوع.")
+
+    risk_pct, risk_col = calculate_risk(method, age, sex, smoking == "مدخن", sbp, bmi, chol, diabetes == "نعم")
+    if risk_pct is None:
+        st.warning("تقييم WHO المرفوع متاح للأعمار 40–74 سنة فقط، أو يحتاج Total Cholesterol عند اختيار الطريقة المعملية.")
+    else:
+        st.success(f"❤️ CVD Risk خلال 10 سنوات: **{risk_pct}%** — {RISK_HELP.get(risk_col, risk_col)}")
+        st.caption(f"طريقة الحساب: {method} | العمر {age} | SBP {sbp} | BMI {bmi}")
+
+    st.subheader("5) مساعد القرار للطبيب")
+    stat_needed, intensity, regimen = statin_recommendation(
+        risk_pct, diabetes == "نعم", tod, multiple_rf, ldl, chol, established_ascvd, pregnancy, lactation
+    )
+    summary = clinical_summary(age, bmi, diabetes, hypertension, smoking, family_history, risk_pct, ldl, established_ascvd, ckd)
+    if summary:
+        st.write("**الانطباع/المشكلات المسجلة:** " + " • ".join(summary))
+    a,b = st.columns(2)
+    with a:
+        st.markdown("### 💊 Statin")
+        if stat_needed == "نعم": st.success(f"**مقترح:** {intensity}\n\n{regimen}")
+        elif stat_needed == "ممنوع حسب الدليل": st.error("لا يستخدم الستاتين في الحمل/الرضاعة حسب الجايدلاين المرفوع.")
+        else: st.info("لا توجد توصية Statin تلقائية من المعايير المدخلة.")
+    with b:
+        st.markdown("### 📅 المتابعة")
+        opts = followup_options(visit_date, risk_pct)
+        if opts:
+            labels = [x[0] for x in opts]
+            choice = st.selectbox("الفترة المقترحة", labels, key="fu_choice")
+            next_fu = dict(opts)[choice]
+            next_fu = st.date_input("التاريخ النهائي (يمكن للطبيب تعديله)", next_fu, key="next_fu")
+        else:
+            next_fu = None
+            st.info("لا يوجد موعد WHO تلقائي لهذا العمر/النتيجة.")
+
+    st.subheader("6) قرار الطبيب والإجراءات")
+    a,b,c,d,e = st.columns(5)
+    with a: health_education = st.selectbox("تثقيف صحي", ["نعم","لا"], key="health_education")
+    with b: bp_treatment = st.selectbox("علاج ضغط", ["نعم","لا"], key="bp_treatment")
+    with c: dm_treatment = st.selectbox("علاج سكر", ["نعم","لا"], key="dm_treatment")
+    with d: statin_given = st.selectbox("ستاتين مصروف", ["نعم","لا"], key="statin_given")
+    with e: aspirin_given = st.selectbox("أسبرين مصروف", ["نعم","لا"], key="aspirin_given")
+
+    referral = st.selectbox("إحالة", ["لا","نعم"], key="referral")
+    referral_reason = ""; referral_specialty = ""; referral_urgency = ""
+    if referral == "نعم":
+        a,b,c = st.columns(3)
+        with a: referral_reason = st.text_input("سبب الإحالة")
+        with b: referral_specialty = st.text_input("التخصص المحول إليه")
+        with c: referral_urgency = st.selectbox("حالة الإحالة", ["عادية","طارئة"])
+        st.warning("سيتم إنشاء متابعة إحالة بعد 3 أيام، مع إمكانية تسجيل موقف المريض والتغذية الراجعة لاحقًا.")
+
+    a,b = st.columns(2)
+    with a: doctor = st.text_input("اسم الطبيب ثلاثي", key="doctor")
+    with b: nurse = st.text_input("اسم الممرضة ثلاثي", key="nurse")
+
+    st.divider()
+    st.subheader("✅ مراجعة قبل الحفظ")
+    review = pd.DataFrame({"البند":["المريض","العمر","BMI","BP","Risk","Statin","المتابعة","الإحالة"],
+                           "القيمة":[name or "-",age,bmi,f"{sbp}/{dbp}",f"{risk_pct}%" if risk_pct is not None else "غير متاح",f"{stat_needed} — {intensity}",next_fu.strftime("%d/%m/%Y") if next_fu else "-",referral]})
+    st.dataframe(review, use_container_width=True, hide_index=True)
+
+    if st.button("💾 اعتماد وحفظ الزيارة", type="primary", use_container_width=True):
+        if not national_id or not name:
+            st.error("الرقم القومي والاسم رباعي مطلوبان.")
+        elif store.exists_visit_month(national_id, visit_date.year, visit_date.month):
+            st.error("هذا المريض مسجل بالفعل في هذا الشهر — تم منع التكرار.")
+        else:
+            now = datetime.now().isoformat(timespec="seconds")
+            store.upsert_patient({
+                "national_id":national_id,"name":name,"dob":dob.isoformat(),"sex":sex,"family_file":family_file,"mobile":mobile,
+                "governorate":governorate,"health_admin":health_admin,"unit":unit,"created_at":now
+            })
+            row = {
+                "visit_id":f"{national_id}-{visit_date.isoformat()}","visit_date":visit_date.isoformat(),"national_id":national_id,"name":name,
+                "family_file":family_file,"campaign_status":campaign_status,"age":age,"sex":sex,"mobile":mobile,"governorate":governorate,
+                "health_admin":health_admin,"unit":unit,"height_cm":height,"weight_kg":weight,"bmi":bmi,"chol_mgdl":chol,"ldl_mgdl":ldl,
+                "sbp":sbp,"dbp":dbp,"diabetes":diabetes,"hypertension":hypertension,"diabetes_status":diabetes_status,
+                "hypertension_status":hypertension_status,"ecg":ecg,"smoking":smoking,"family_history":family_history,
+                "established_ascvd":"نعم" if established_ascvd else "لا","ckd":"نعم" if ckd else "لا","tod":"نعم" if tod else "لا",
+                "multiple_rf":"نعم" if multiple_rf else "لا","pregnancy":"نعم" if pregnancy else "لا","lactation":"نعم" if lactation else "لا",
+                "risk_method":method,"risk_pct":risk_pct,"risk_color":risk_col,"statin_needed":stat_needed,"statin_intensity":intensity,
+                "statin_regimen":regimen,"bp_treatment":bp_treatment,"dm_treatment":dm_treatment,"statin_given":statin_given,
+                "aspirin_given":aspirin_given,"health_education":health_education,"referral":referral,"referral_reason":referral_reason,
+                "referral_specialty":referral_specialty,"referral_urgency":referral_urgency,"next_followup":next_fu.isoformat() if next_fu else "",
+                "doctor":doctor,"nurse":nurse,"created_at":now
+            }
+            store.append("Visits", row)
+            if next_fu:
+                store.append("Followup", {"id":f"{national_id}-{next_fu.isoformat()}","national_id":national_id,"name":name,
+                    "scheduled_date":next_fu.isoformat(),"visit_date":visit_date.isoformat(),"status":"مجدول","created_at":now})
+            if referral == "نعم":
+                store.append("Referrals", {"id":f"{national_id}-{visit_date.isoformat()}","referral_date":visit_date.isoformat(),"national_id":national_id,
+                    "name":name,"family_file":family_file,"mobile":mobile,"reason":referral_reason,"specialty":referral_specialty,
+                    "urgency":referral_urgency,"followup_1_date":(pd.Timestamp(visit_date) + pd.Timedelta(days=3)).date().isoformat(),"created_at":now})
+            st.success("تم اعتماد الزيارة. تم تحديث ملف المريض، المتابعة، الإحالة والإحصائيات تلقائيًا.")
+
+# ---------------- PATIENT FILE ----------------
+elif page == "👤 ملف المريض":
+    st.title("👤 ملف المريض")
+    nid = st.text_input("ابحث بالرقم القومي")
+    if nid:
+        p = store.patient(nid)
+        v = store.df("Visits")
+        if not v.empty: v = v[v.national_id.astype(str) == str(nid)].copy()
+        if not p:
+            st.warning("المريض غير موجود.")
+        else:
+            st.success(f"تم العثور على: {p.get('name','')}")
+            a,b,c,d = st.columns(4)
+            a.metric("الاسم", p.get("name", "-")); b.metric("النوع", p.get("sex", "-")); c.metric("الموبايل", p.get("mobile", "-")); d.metric("الملف العائلي", p.get("family_file", "-"))
+            if not v.empty:
+                v["visit_date"] = pd.to_datetime(v.visit_date, errors="coerce")
+                latest = v.sort_values("visit_date").iloc[-1]
+                st.subheader("آخر زيارة")
+                a,b,c,d,e = st.columns(5)
+                a.metric("التاريخ", latest.visit_date.strftime("%d/%m/%Y") if pd.notna(latest.visit_date) else "-")
+                b.metric("BP", f"{latest.sbp}/{latest.dbp}")
+                c.metric("BMI", latest.bmi)
+                d.metric("Risk", f"{latest.risk_pct}%" if str(latest.risk_pct) not in ("", "nan") else "-")
+                e.metric("Statin", latest.statin_intensity or "-")
+                st.subheader("📜 تاريخ الزيارات")
+                cols = ["visit_date","campaign_status","age","bmi","sbp","dbp","ldl_mgdl","risk_pct","risk_color","statin_given","referral","next_followup"]
+                st.dataframe(v.sort_values("visit_date", ascending=False)[cols], use_container_width=True, hide_index=True)
+            else:
+                st.info("لا توجد زيارات مسجلة لهذا المريض.")
+
+# ---------------- FOLLOWUP ----------------
+elif page == "📅 المتابعة والاستدعاء":
+    st.title("📅 المتابعة والاستدعاء")
+    df = store.df("Followup")
+    if df.empty:
+        st.info("لا توجد سجلات متابعة.")
+    else:
+        df["scheduled_date"] = pd.to_datetime(df.scheduled_date, errors="coerce")
+        today = date.today()
+        due = df[df.scheduled_date.dt.date <= today].copy()
+        upcoming = df[df.scheduled_date.dt.date > today].copy()
+        a,b,c = st.columns(3)
+        a.metric("مستحق/متأخر", len(due)); b.metric("القادم", len(upcoming)); c.metric("إجمالي المواعيد", len(df))
+        st.subheader("🔴 المستحق والمتأخر")
+        if due.empty: st.success("لا توجد متابعات مستحقة اليوم.")
+        else: st.dataframe(due.sort_values("scheduled_date"), use_container_width=True, hide_index=True)
+        st.subheader("🟢 المواعيد القادمة")
+        st.dataframe(upcoming.sort_values("scheduled_date").head(100), use_container_width=True, hide_index=True)
+        st.caption("الاستدعاء ليس زيارة جديدة. الزيارة الجديدة تُسجل فقط عند حضور المريض. يمكن لاحقًا تسجيل محاولات الاتصال وموقف المريض في نفس سجل المتابعة.")
+
+# ---------------- REFERRALS ----------------
+elif page == "🚨 الإحالات":
+    st.title("🚨 الإحالات والتغذية الراجعة")
+    df = store.df("Referrals")
+    if df.empty:
+        st.info("لا توجد إحالات.")
+    else:
+        rd = pd.to_datetime(df.referral_date, errors="coerce")
+        st.metric("إجمالي الإحالات", len(df))
+        st.dataframe(df.sort_values("referral_date", ascending=False), use_container_width=True, hide_index=True)
+        st.caption("نموذج الإحالة يدعم سبب الإحالة، التخصص، درجة الاستعجال، والمتابعات والتغذية الراجعة.")
+
+# ---------------- REPORTS ----------------
+elif page == "📊 التقارير":
+    st.title("📊 التقارير — بدون إعادة إدخال")
+    today = date.today()
+    a,b,c = st.columns(3)
+    with a: year = st.number_input("السنة", 2020, 2100, today.year)
+    with b: month = st.number_input("الشهر", 1, 12, today.month)
+    with c: gov = st.text_input("المحافظة (اختياري)")
+    admin = st.text_input("الإدارة الصحية (اختياري)")
+    rep = monthly_report(store, int(year), int(month), gov, admin)
+    if rep.empty:
+        st.info("لا توجد بيانات لهذا الشهر/الفلاتر.")
+    else:
+        total = int(rep["اجمالي"].sum())
+        new = int(rep["جديد"].sum()); follow = int(rep["متردد"].sum())
+        a,b,c,d = st.columns(4)
+        a.metric("الإجمالي", total); b.metric("جديد", new); c.metric("متردد", follow); d.metric("الوحدات", len(rep))
+        st.dataframe(rep, use_container_width=True, hide_index=True)
+        x = report_xlsx(rep, gov, int(year), int(month))
+        st.download_button("⬇️ تحميل البيان الشهري بنفس قالب Excel", x, f"البيان_الشهري_قلبك_أمانة_{int(year)}_{int(month):02d}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# ---------------- EXPORT ----------------
+elif page == "💾 تصدير البيانات":
+    st.title("💾 تصدير البيانات")
+    x = make_excel(store)
+    st.download_button("⬇️ تحميل قاعدة البيانات كاملة Excel", x, "قلبك_أمانة_كل_البيانات.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    for t in HEADERS:
+        st.write(f"**{t}**: {len(store.df(t))} سجل")
+
+# ---------------- SETTINGS ----------------
+elif page == "⚙️ الإعدادات":
+    st.title("⚙️ الإعدادات")
+    st.markdown("""
+### Google Sheets على Streamlit Cloud
+1. أنشئي Google Sheet باسم مثل `قلبك أمانة`.
+2. أنشئي Service Account وفعّلي Google Sheets API وGoogle Drive API.
+3. شاركي الـGoogle Sheet مع `client_email` الخاص بالـService Account كمحرر.
+4. في Streamlit → Settings → Secrets ضعي `google_sheet.spreadsheet_name` وبيانات `gcp_service_account`.
+5. عند التشغيل ستُنشأ تبويبات Patients / Visits / Followup / Referrals تلقائيًا.
+
+**مهم:** النسخة الحالية مساعد قرار للطبيب وليست بديلًا عن الحكم السريري. التوصيات تُعرض حسب البيانات المدخلة والجايدلاين المرفوع، والطبيب يعتمد القرار النهائي.
+    """)
+    st.code('''[google_sheet]\nspreadsheet_name = "قلبك أمانة"\n\n[gcp_service_account]\ntype = "service_account"\nproject_id = "..."\nprivate_key_id = "..."\nprivate_key = "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"\nclient_email = "..."\nclient_id = "..."\nauth_uri = "https://accounts.google.com/o/oauth2/auth"\ntoken_uri = "https://oauth2.googleapis.com/token"\nauth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"\nclient_x509_cert_url = "..."''', language="toml")
