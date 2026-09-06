@@ -20,6 +20,12 @@ DB_PATH = APP_DIR / "qalbak_amanah.db"
 
 st.set_page_config(page_title="قلبك أمانة | مساعد الطبيب", page_icon="❤️", layout="wide")
 
+with st.sidebar:
+  st.markdown("---")
+  st.markdown("### 🏛️ الإدارة الصحية ببني عبيد")
+  st.markdown("**Prepared by:** Dr. Zahraa Yasser Saleh")
+  st.markdown("---")
+    
 HEADERS = {
     "Patients": [
         "national_id", "name", "dob", "sex", "family_file", "mobile",
