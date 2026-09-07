@@ -297,6 +297,37 @@ class Store:
                 self.append("Patients", row)
 
 
+    def update_by_id(self, table, record_id, updates):
+        """Update a row by its id/visit_id. Used for follow-up and referral workflow."""
+        headers = HEADERS[table]
+        id_col = "visit_id" if table == "Visits" else "id"
+        if self.gs:
+            ws = self.gs.worksheet(table)
+            vals = ws.get_all_values()
+            if vals:
+                try:
+                    idx = headers.index(id_col) + 1
+                    for r, row in enumerate(vals[1:], start=2):
+                        if len(row) >= idx and str(row[idx-1]) == str(record_id):
+                            for k, v in updates.items():
+                                if k in headers:
+                                    c = headers.index(k) + 1
+                                    ws.update_cell(r, c, "" if v is None else str(v))
+                            break
+                except Exception:
+                    pass
+        con = sqlite3.connect(DB_PATH)
+        sets=[]; vals=[]
+        for k,v in updates.items():
+            if k in headers:
+                sets.append(f'"{k}"=?'); vals.append(v)
+        if sets:
+            vals.append(record_id)
+            con.execute(f'UPDATE "{table}" SET {", ".join(sets)} WHERE "{id_col}"=?', vals)
+            con.commit()
+        con.close()
+
+
 def make_excel(store):
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
@@ -398,6 +429,18 @@ def set_patient_defaults(p):
         except Exception: pass
 
 
+def education_text(age, bmi, sbp, dbp, smoking, diabetes, hypertension, chol, ldl,
+                    statin_needed, statin_intensity, statin_regimen, bp_treatment, dm_treatment,
+                    statin_given, established_ascvd, ckd, next_fu):
+    return generate_health_education(
+        age=age, bmi=bmi, sbp=sbp, dbp=dbp, smoking=smoking, diabetes=diabetes,
+        hypertension=hypertension, chol_mgdl=chol, ldl_mgdl=ldl, statin_needed=statin_needed,
+        statin_intensity=statin_intensity, statin_regimen=statin_regimen, bp_treatment=bp_treatment,
+        dm_treatment=dm_treatment, statin_given=statin_given, established_ascvd=established_ascvd,
+        ckd=ckd, next_followup=next_fu.strftime("%d-%m-%Y") if next_fu else None
+    )
+
+
 store = Store()
 
 # Header / navigation
@@ -414,58 +457,66 @@ else:
 
 # ---------------- HOME ----------------
 if page == "🏠 الرئيسية":
-    st.title("❤️ قلبك أمانة — مساعد الطبيب")
+    st.title("❤️ قلبك أمانة — لوحة الطبيب")
     today = date.today()
     visits = store.df("Visits")
     follow = store.df("Followup")
     refs = store.df("Referrals")
     if visits.empty:
-        today_visits = pd.DataFrame()
-        month_visits = pd.DataFrame()
+        today_visits = pd.DataFrame(); month_visits = pd.DataFrame()
     else:
         vd = pd.to_datetime(visits.visit_date, errors="coerce")
         today_visits = visits[vd.dt.date == today]
         month_visits = visits[(vd.dt.year == today.year) & (vd.dt.month == today.month)]
     if follow.empty:
-        due_count = 0
+        due = pd.DataFrame()
     else:
         fd = pd.to_datetime(follow.scheduled_date, errors="coerce")
-        due_count = int((fd.dt.date <= today).sum())
-    ref_count = 0 if refs.empty else len(refs)
-    risk_high = 0 if month_visits.empty else int(pd.to_numeric(month_visits.risk_pct, errors="coerce").ge(20).sum())
+        due = follow[fd.dt.date <= today].copy()
+        if "status" in due.columns: due = due[~due.status.isin(["تمت المتابعة", "حضر", "مغلق"])]
+    month_risk = pd.to_numeric(month_visits.risk_pct, errors="coerce") if not month_visits.empty else pd.Series(dtype=float)
+    risk_high = int(month_risk.ge(20).sum()) if not month_visits.empty else 0
+    ref_count = len(refs) if not refs.empty else 0
 
-    a,b,c,d,e = st.columns(5)
-    a.metric("زيارات اليوم", len(today_visits))
-    b.metric("زيارات الشهر", len(month_visits))
-    c.metric("متابعات مستحقة", due_count)
-    d.metric("إحالات مسجلة", ref_count)
-    e.metric("Risk ≥20% هذا الشهر", risk_high)
+    metrics = st.columns(6)
+    metrics[0].metric("زيارات اليوم", len(today_visits))
+    metrics[1].metric("زيارات الشهر", len(month_visits))
+    metrics[2].metric("متابعات مستحقة", len(due))
+    metrics[3].metric("إحالات", ref_count)
+    metrics[4].metric("خطورة ≥20%", risk_high)
+    metrics[5].metric("مدخنون هذا الشهر", int(month_visits.smoking.eq("مدخن").sum()) if not month_visits.empty else 0)
 
     st.divider()
-    x,y = st.columns(2)
-    with x:
+    left, right = st.columns(2)
+    with left:
         st.subheader("⚡ اختصارات الطبيب")
-        if st.button("➕ تسجيل زيارة جديدة", use_container_width=True):
+        st.info("أدخل الزيارة مرة واحدة؛ البرنامج يحسب الخطورة، يقترح المتابعة، يولد التثقيف، ويجهز التقرير الشهري.")
+        if st.button("➕ تسجيل زيارة جديدة", use_container_width=True, type="primary"):
             st.session_state["go_to_visit"] = True
             st.rerun()
-        st.info("سجّل المريض مرة واحدة؛ في الزيارات التالية استخدم الرقم القومي لاسترجاع بياناته.")
-    with y:
-        st.subheader("🚨 ما يحتاج انتباهًا")
-        if due_count:
-            st.warning(f"يوجد {due_count} موعد متابعة مستحق أو متأخر.")
+        if not due.empty:
+            st.warning(f"🔔 لديك {len(due)} متابعة مستحقة أو متأخرة.")
+    with right:
+        st.subheader("🚨 أولويات اليوم")
+        if not due.empty:
+            st.write("• مراجعة المتابعات المستحقة")
         if risk_high:
-            st.error(f"يوجد {risk_high} مريض/مرضى بخطورة ≥20% هذا الشهر.")
-        if not due_count and not risk_high:
-            st.success("لا توجد تنبيهات رئيسية حاليًا.")
+            st.write(f"• مراجعة {risk_high} حالة بخطورة قلبية ≥20% هذا الشهر")
+        if not due.empty and not refs.empty:
+            st.write("• متابعة الإحالات المفتوحة")
+        if due.empty and not risk_high:
+            st.success("لا توجد أولويات رئيسية ظاهرة الآن.")
 
     if not month_visits.empty:
-        st.subheader("📊 ملخص الشهر الحالي")
-        r = pd.to_numeric(month_visits.risk_pct, errors="coerce")
-        s1,s2,s3,s4 = st.columns(4)
-        s1.metric("جديد", int(month_visits.campaign_status.eq("جديد").sum()))
-        s2.metric("متردد", int(month_visits.campaign_status.eq("متردد").sum()))
-        s3.metric("مدخنون", int(month_visits.smoking.eq("مدخن").sum()))
-        s4.metric("إحالات", int(month_visits.referral.eq("نعم").sum()))
+        st.subheader("📊 مؤشرات الشهر الحالي")
+        a,b,c,d,e,f = st.columns(6)
+        a.metric("جديد", int(month_visits.campaign_status.eq("جديد").sum()))
+        b.metric("متردد", int(month_visits.campaign_status.eq("متردد").sum()))
+        c.metric("ضغط", int(month_visits.hypertension.eq("نعم").sum()))
+        d.metric("سكر", int(month_visits.diabetes.eq("نعم").sum()))
+        e.metric("ستاتين مصروف", int(month_visits.statin_given.eq("نعم").sum()))
+        f.metric("إحالات", int(month_visits.referral.eq("نعم").sum()))
+        st.dataframe(month_visits.sort_values("visit_date", ascending=False)[["visit_date","name","unit","risk_pct","risk_color","next_followup"]].head(20), use_container_width=True, hide_index=True)
 
 # ---------------- NEW VISIT ----------------
 elif page == "➕ زيارة جديدة":
@@ -574,29 +625,15 @@ elif page == "➕ زيارة جديدة":
             next_fu = None
             st.info("لا يوجد موعد WHO تلقائي لهذا العمر/النتيجة.")
 
-    st.subheader("📱 رسالة التثقيف الصحي للمريض")
-    education_data = {
-        "age": age, "sex": sex, "bmi": bmi, "sbp": sbp, "dbp": dbp,
-        "smoking": smoking, "diabetes": diabetes, "hypertension": hypertension,
-        "diabetes_status": diabetes_status, "hypertension_status": hypertension_status,
-        "chol_mgdl": chol, "ldl_mgdl": ldl, "risk_pct": risk_pct,
-        "statin_needed": stat_needed, "statin_intensity": intensity,
-        "next_followup": next_fu.isoformat() if next_fu else None, "established_ascvd": established_ascvd, "ckd": ckd
-    }
-    education_message = generate_health_education(education_data)
-    st.info("الرسالة تتغير تلقائيًا حسب بيانات المريض. راجعها قبل إرسالها للمريض.")
-    st.text_area("النص الجاهز للنسخ والإرسال", education_message, height=420, key="patient_education_preview")
-    st.download_button(
-        "⬇️ حفظ رسالة التثقيف كملف نصي",
-        education_message.encode("utf-8"),
-        "رسالة_تثقيف_صحي_قلبك_أمانة.txt",
-        "text/plain",
-        use_container_width=True
-    )
+    st.subheader("6) 📱 رسالة التثقيف الصحي للمريض")
+    edu = education_text(age, bmi, sbp, dbp, smoking, diabetes, hypertension, chol, ldl,
+                          stat_needed, intensity, regimen, "", "", statin_given, established_ascvd, ckd, next_fu)
+    st.text_area("النص الجاهز للنسخ والإرسال للمريض", edu, height=360, key="patient_education_preview")
+    st.download_button("⬇️ حفظ الرسالة كملف نصي", edu, "رسالة_تثقيف_صحي_قلبك_أمانة.txt", "text/plain; charset=utf-8", use_container_width=True)
 
-    st.subheader("6) قرار الطبيب والإجراءات")
+    st.subheader("7) قرار الطبيب والإجراءات")
     a,b,c,d,e = st.columns(5)
-    with a: health_education = st.selectbox("تم تقديم التثقيف الصحي", ["نعم","لا"], key="health_education")
+    with a: health_education = st.selectbox("تثقيف صحي", ["نعم","لا"], key="health_education")
     with b: bp_treatment = st.selectbox("علاج ضغط", ["نعم","لا"], key="bp_treatment")
     with c: dm_treatment = st.selectbox("علاج سكر", ["نعم","لا"], key="dm_treatment")
     with d: statin_given = st.selectbox("ستاتين مصروف", ["نعم","لا"], key="statin_given")
@@ -695,28 +732,54 @@ elif page == "📅 المتابعة والاستدعاء":
     else:
         df["scheduled_date"] = pd.to_datetime(df.scheduled_date, errors="coerce")
         today = date.today()
-        due = df[df.scheduled_date.dt.date <= today].copy()
-        upcoming = df[df.scheduled_date.dt.date > today].copy()
+        open_df = df[~df.status.isin(["تمت المتابعة", "حضر", "مغلق"])] if "status" in df.columns else df
+        due = open_df[open_df.scheduled_date.dt.date <= today].copy()
+        upcoming = open_df[open_df.scheduled_date.dt.date > today].copy()
         a,b,c = st.columns(3)
-        a.metric("مستحق/متأخر", len(due)); b.metric("القادم", len(upcoming)); c.metric("إجمالي المواعيد", len(df))
+        a.metric("مستحق/متأخر", len(due)); b.metric("القادم", len(upcoming)); c.metric("إجمالي السجلات", len(df))
+
         st.subheader("🔴 المستحق والمتأخر")
-        if due.empty: st.success("لا توجد متابعات مستحقة اليوم.")
-        else: st.dataframe(due.sort_values("scheduled_date"), use_container_width=True, hide_index=True)
+        if due.empty:
+            st.success("لا توجد متابعات مستحقة حاليًا.")
+        else:
+            for _, r in due.sort_values("scheduled_date").head(100).iterrows():
+                rid = r.get("id", "")
+                with st.expander(f"{r.get('name','')} — {r.get('national_id','')} — {r.get('scheduled_date').strftime('%d/%m/%Y') if pd.notna(r.get('scheduled_date')) else ''}"):
+                    st.write(f"موعد المتابعة: {r.get('scheduled_date').strftime('%d/%m/%Y') if pd.notna(r.get('scheduled_date')) else '-'}")
+                    c1,c2,c3 = st.columns(3)
+                    status = c1.selectbox("موقف المتابعة", ["مجدول","تم الاتصال","لم يرد","حضر","تمت المتابعة","مغلق"], index=["مجدول","تم الاتصال","لم يرد","حضر","تمت المتابعة","مغلق"].index(r.get("status")) if r.get("status") in ["مجدول","تم الاتصال","لم يرد","حضر","تمت المتابعة","مغلق"] else 0, key=f"fu_status_{rid}")
+                    call_date = c2.date_input("تاريخ آخر اتصال", today, key=f"fu_date_{rid}")
+                    caller = c3.text_input("اسم المتابع", r.get("caller", ""), key=f"fu_caller_{rid}")
+                    if st.button("💾 حفظ موقف المتابعة", key=f"fu_save_{rid}"):
+                        store.update_by_id("Followup", rid, {"status":status, "call_1_date":call_date.isoformat(), "call_1_status":status, "caller":caller})
+                        st.success("تم تحديث المتابعة.")
+                        st.rerun()
+
         st.subheader("🟢 المواعيد القادمة")
         st.dataframe(upcoming.sort_values("scheduled_date").head(100), use_container_width=True, hide_index=True)
-        st.caption("الاستدعاء ليس زيارة جديدة. الزيارة الجديدة تُسجل فقط عند حضور المريض. يمكن لاحقًا تسجيل محاولات الاتصال وموقف المريض في نفس سجل المتابعة.")
+        st.caption("الاستدعاء ليس زيارة جديدة؛ يتم تسجيل الزيارة فقط عند حضور المريض.")
 
 # ---------------- REFERRALS ----------------
 elif page == "🚨 الإحالات":
-    st.title("🚨 الإحالات والتغذية الراجعة")
+    st.title("🚨 الإحالات والمتابعة")
     df = store.df("Referrals")
     if df.empty:
         st.info("لا توجد إحالات.")
     else:
-        rd = pd.to_datetime(df.referral_date, errors="coerce")
         st.metric("إجمالي الإحالات", len(df))
-        st.dataframe(df.sort_values("referral_date", ascending=False), use_container_width=True, hide_index=True)
-        st.caption("نموذج الإحالة يدعم سبب الإحالة، التخصص، درجة الاستعجال، والمتابعات والتغذية الراجعة.")
+        for _, r in df.sort_values("referral_date", ascending=False).head(100).iterrows():
+            rid = r.get("id", "")
+            with st.expander(f"{r.get('name','')} — {r.get('specialty','')} — {r.get('urgency','')}"):
+                st.write(f"سبب الإحالة: {r.get('reason','-')} | تاريخ الإحالة: {r.get('referral_date','-')}")
+                c1,c2,c3 = st.columns(3)
+                status1 = c1.selectbox("المتابعة 1", ["","تم الاتصال","لم يرد","حضر","لم يحضر"], index=(["","تم الاتصال","لم يرد","حضر","لم يحضر"].index(r.get("followup_1_status", "")) if r.get("followup_1_status", "") in ["","تم الاتصال","لم يرد","حضر","لم يحضر"] else 0), key=f"r1_{rid}")
+                status2 = c2.selectbox("المتابعة 2", ["","تم الاتصال","لم يرد","حضر","لم يحضر"], index=(["","تم الاتصال","لم يرد","حضر","لم يحضر"].index(r.get("followup_2_status", "")) if r.get("followup_2_status", "") in ["","تم الاتصال","لم يرد","حضر","لم يحضر"] else 0), key=f"r2_{rid}")
+                status3 = c3.selectbox("المتابعة 3", ["","تم الاتصال","لم يرد","حضر","لم يحضر"], index=(["","تم الاتصال","لم يرد","حضر","لم يحضر"].index(r.get("followup_3_status", "")) if r.get("followup_3_status", "") in ["","تم الاتصال","لم يرد","حضر","لم يحضر"] else 0), key=f"r3_{rid}")
+                feedback = st.text_area("التغذية الراجعة / نتيجة الإحالة", r.get("feedback_other", ""), key=f"rf_{rid}")
+                if st.button("💾 حفظ متابعة الإحالة", key=f"rs_{rid}"):
+                    store.update_by_id("Referrals", rid, {"followup_1_status":status1,"followup_2_status":status2,"followup_3_status":status3,"feedback_other":feedback,"followup_staff":st.session_state.get("doctor","")})
+                    st.success("تم تحديث الإحالة.")
+                    st.rerun()
 
 # ---------------- REPORTS ----------------
 elif page == "📊 التقارير":
@@ -736,6 +799,9 @@ elif page == "📊 التقارير":
         a,b,c,d = st.columns(4)
         a.metric("الإجمالي", total); b.metric("جديد", new); c.metric("متردد", follow); d.metric("الوحدات", len(rep))
         st.dataframe(rep, use_container_width=True, hide_index=True)
+        st.subheader("❤️ توزيع الخطورة")
+        rr = pd.DataFrame({"الفئة":["<5%","5–<10%","10–<20%","≥20%"], "العدد":[int(rep["<5"].sum()),int(rep["5-10"].sum()),int(rep["10-20"].sum()),int(rep[">20"].sum())]})
+        st.dataframe(rr, use_container_width=True, hide_index=True)
         x = report_xlsx(rep, gov, int(year), int(month))
         st.download_button("⬇️ تحميل البيان الشهري بنفس قالب Excel", x, f"البيان_الشهري_قلبك_أمانة_{int(year)}_{int(month):02d}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
