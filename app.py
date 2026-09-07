@@ -626,8 +626,10 @@ elif page == "➕ زيارة جديدة":
             st.info("لا يوجد موعد WHO تلقائي لهذا العمر/النتيجة.")
 
     st.subheader("6) 📱 رسالة التثقيف الصحي للمريض")
+    # قرار صرف الستاتين يُسجل بعد معاينة الطبيب في القسم التالي؛
+    # لذلك لا نعتمد على متغير لم يُنشأ بعد عند توليد الرسالة.
     edu = education_text(age, bmi, sbp, dbp, smoking, diabetes, hypertension, chol, ldl,
-                          stat_needed, intensity, regimen, "", "", statin_given, established_ascvd, ckd, next_fu)
+                          stat_needed, intensity, regimen, "", "", "لا", established_ascvd, ckd, next_fu)
     st.text_area("النص الجاهز للنسخ والإرسال للمريض", edu, height=360, key="patient_education_preview")
     st.download_button("⬇️ حفظ الرسالة كملف نصي", edu, "رسالة_تثقيف_صحي_قلبك_أمانة.txt", "text/plain; charset=utf-8", use_container_width=True)
 
